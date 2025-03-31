@@ -1,5 +1,6 @@
 import axios from "axios";
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState,useContext } from "react";
+import { logincontext } from "../contextapi/contextapi";
 import Button from "react-bootstrap/Button";
 import EditIcon from "@mui/icons-material/Edit";
 import DeleteIcon from "@mui/icons-material/Delete";
@@ -13,6 +14,9 @@ import VisibilityIcon from "@mui/icons-material/Visibility";
 import DownloadIcon from "@mui/icons-material/Download";
 
 function SearchByVendor() {
+
+   const [loginUser, setLoginUser] = useContext(logincontext);
+
   const [pdfUrl, setPdfUrl] = useState("");
 
   const [pdfId, setpdfId] = useState("");
@@ -64,15 +68,28 @@ function SearchByVendor() {
 
   const [delstatus, setdelstatus] = useState(null);
 
+  const [suppliedTo,setSuppliedTo]=useState(null)
+
+  const [vendorId,setVendorId]=useState(null)
+
+  const [componentId,setComponentId]=useState(null)
+
+  const [vendorIdForComponent,setVendorIdForComponent]=useState(null)
+
+  
+
   useEffect(() => {
     const fetchPdf = async () => {
+      if (!pdfId || !loginUser?.user_id) return; // Ensure both values are available
+  
       try {
-        const response = await axios.get(
-          `http://localhost:5000/view/${pdfId}`,
-          {
-            responseType: "blob",
-          }
-        );
+        const response = await axios.get(`http://localhost:5000/view`, {
+          params: { 
+            invoice_no: pdfId, 
+            user_id: loginUser.user_id 
+          },
+          responseType: "blob",
+        });
         const url = URL.createObjectURL(
           new Blob([response.data], { type: "application/pdf" })
         );
@@ -81,14 +98,14 @@ function SearchByVendor() {
         console.error("Error fetching the PDF", error);
       }
     };
-
+  
     fetchPdf();
-    return () => {
-      URL.revokeObjectURL(pdfUrl);
-    };
-  }, [pdfId]);
+  }, [pdfId, loginUser?.user_id]); // Runs when pdfId or user_id changes
+  
+  
 
   const handlesubmit = () => {
+    console.log("componet id is ",componentId," vendor id is ",vendorId)
     if (
       selectedVendor !== null &&
       selectedComponentPurchased !== null &&
@@ -101,6 +118,7 @@ function SearchByVendor() {
       axios
         .put("http://127.0.0.1:5000/purchasedcomponents/put", {
           id: editID,
+          user_id:loginUser.user_id,
           selectedVendor: selectedVendor,
           selectedComponentPurchased: selectedComponentPurchased,
           QuantityPurchased: QuantityPurchased,
@@ -108,29 +126,37 @@ function SearchByVendor() {
           PurchasedDate: PurchasedDate,
           StockEntry: StockEntry,
           InvoiceNo: InvoiceNo,
+          suppliedTo:suppliedTo,
+          componentId:componentId,
+          vendorId:vendorId
         })
-        .then((r) => seteditstatus(r.data))
-        .catch((err) => seteditstatus(err.response.editstatus));
+        .then((r) =>{
+           seteditstatus(201);
+           })
+        .catch((err) => seteditstatus(400));
     } else {
       seteditstatus(400);
     }
   };
 
   function DeleteSelectedComponent() {
+  
     axios
-      .delete(`http://127.0.0.1:5000/purchasedcomponents/delete/${delID}/`)
+      .delete(`http://127.0.0.1:5000/purchasedcomponents/delete/${delID}/${componentId}/${InvoiceNo}/${vendorId}/`)
       .then((r) => {
-        setdelstatus(r.data);
+        setdelstatus(201);
       })
-      .catch((err) => setdelstatus(err.response.editstatus));
-  }
+      .catch((err) => setdelstatus(400));
+}
+
 
   useEffect(() => {
     setData([]);
     if (VendorName.length > 0) {
       axios
-        .put(`http://127.0.0.1:5000/purchasedcomponents/get/vendornames`, {
+        .post(`http://127.0.0.1:5000/purchasedcomponents/get/vendornames`, {
           VendorName: VendorName,
+          user_id:loginUser.user_id
         })
         .then((r) => setVendorData(r.data))
         .catch((err) => console.log(err.response?.status));
@@ -139,20 +165,27 @@ function SearchByVendor() {
 
   useEffect(() => {
     axios
-      .get(`http://127.0.0.1:5000/purchasedcomponents/get/vendornames`)
-      .then((r) => setVendorData(r.data))
+      .get(`http://127.0.0.1:5000/purchasedcomponents/get/vendornames`,{
+        params: { user_id: loginUser.user_id }
+      })
+      .then((r) => {
+        console.log("response in vendors is ",r.data)
+        setVendorData(r.data)})
       .catch((err) => console.log(err.response?.status));
   }, []);
 
   useEffect(() => {
+    console.log("sort state changed ",sort)
     axios
       .put(
         `http://127.0.0.1:5000/purchasedcomponents/get/components/${sort}/`,
         {
           selectedVendor: selectedVendor,
+          user_id:loginUser.user_id
         }
       )
       .then((r) => {
+        console.log("components data is ",r.data[0].items[0].purchase_id)
         const invoices = r.data;
 
         let QuantityArray = [];
@@ -178,6 +211,7 @@ function SearchByVendor() {
         `http://127.0.0.1:5000/vendor/generate_pdf/${sort}/`,
         {
           selectedVendor: selectedVendor,
+          user_id:loginUser.user_id
         },
         { responseType: "blob" }
       )
@@ -537,6 +571,7 @@ function SearchByVendor() {
                   </div>
                   <div className="col">
                     <input
+                      readOnly
                       required
                       style={{ border: "1px solid black" }}
                       value={InvoiceNo}
@@ -706,9 +741,10 @@ function SearchByVendor() {
             >
               <div
                 onClick={() => {
-                  setSelectedVendor(d);
+                  setSelectedVendor(d.vendor_name);
                   setshow(!show);
                   setselectedVendorIdx(idx);
+                  setVendorIdForComponent(d.vendor_id)
                 }}
                 className="p-3"
               >
@@ -716,7 +752,7 @@ function SearchByVendor() {
                   style={{ display: "flex", justifyContent: "space-between" }}
                 >
                   <div className="my-1">
-                    <h5>{d}</h5>
+                    <h5>{d.vendor_name}</h5>
                   </div>
 
                   <div style={{ display: "flex" }}>
@@ -779,8 +815,9 @@ function SearchByVendor() {
                               <div>
                                 <Button
                                   onClick={() => {
-                                    setpdfId(d.items[0].id);
+                                    setpdfId(d.items[0].invoice_no);
                                     setshowpdf(true);
+                                    console.log(d.items[0].id)
                                   }}
                                   className="btn btn-success"
                                 >
@@ -832,6 +869,9 @@ function SearchByVendor() {
                                     <Button
                                       style={{ borderRadius: "50%" }}
                                       onClick={() => {
+                                        console.log(item)
+                                        setComponentId(item.component_id);
+                                        setVendorId(item.vendor_id);
                                         setSelectedVendor(d.vendor_name);
                                         setPurchasedDate(d.purchased_date);
                                         setInvoiceNo(d.invoice_no);
@@ -844,7 +884,8 @@ function SearchByVendor() {
                                         setPurchasedPrice(item.purchased_price);
                                         setStockEntry(item.stock_entry);
                                         seteditShow(true);
-                                        seteditID(item.id);
+                                        seteditID(item.purchase_id);
+                                        setSuppliedTo(item.supplied_to)
                                       }}
                                       className="btn btn-primary p-2"
                                     >
@@ -860,9 +901,12 @@ function SearchByVendor() {
                                     <Button
                                       style={{ borderRadius: "50%" }}
                                       onClick={() => {
+                                        console.log(item)
                                         setSelectedVendor(d.vendor_name);
                                         setPurchasedDate(d.purchased_date);
                                         setInvoiceNo(d.invoice_no);
+                                        setComponentId(item.component_id);
+                                        setVendorId(item.vendor_id);
                                         setSelectedComponentPurchased(
                                           item.component_purchased
                                         );
@@ -871,8 +915,9 @@ function SearchByVendor() {
                                         );
                                         setPurchasedPrice(item.purchased_price);
                                         setStockEntry(item.stock_entry);
+                                        setSuppliedTo(item.supplied_to)
                                         setdelShow(true);
-                                        setdelID(item.id);
+                                        setdelID(item.purchase_id);
                                       }}
                                       className="btn btn-danger p-2"
                                     >
@@ -898,8 +943,8 @@ function SearchByVendor() {
                         <h6>
                           Supplied To {d.supplied_to} | Purchased Date :{" "}
                           {d.purchased_date} | Updated Date :{" "}
-                          {d.updated_date.split("T")[0]} | Updated Time :{" "}
-                          {d.updated_date.split("T")[1]}
+                          {d.updated_date.split(" ").slice(1,4).join(" ")} | Updated Time :{" "}
+                          {d.updated_date.split(" ").slice(4,).join(" ")}
                         </h6>
                       </div>
                     </div>

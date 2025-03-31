@@ -1,5 +1,5 @@
 import axios from "axios";
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState,useContext } from "react";
 import Button from "react-bootstrap/Button";
 import EditIcon from "@mui/icons-material/Edit";
 import DeleteIcon from "@mui/icons-material/Delete";
@@ -11,8 +11,13 @@ import RemoveIcon from "@mui/icons-material/Remove";
 import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
 import VisibilityIcon from "@mui/icons-material/Visibility";
 import DownloadIcon from "@mui/icons-material/Download";
+import { logincontext } from "../contextapi/contextapi";
 
 function SearchByInvoice() {
+
+  
+  const [loginUser, setLoginUser] = useContext(logincontext);
+
   const [pdfUrl, setPdfUrl] = useState("");
 
   const [pdfId, setpdfId] = useState("");
@@ -64,29 +69,37 @@ function SearchByInvoice() {
 
   const [delstatus, setdelstatus] = useState(null);
 
-  useEffect(() => {
-    const fetchPdf = async () => {
-      try {
-        const response = await axios.get(
-          `http://localhost:5000/view/${pdfId}`,
-          {
-            responseType: "blob",
-          }
-        );
-        const url = URL.createObjectURL(
-          new Blob([response.data], { type: "application/pdf" })
-        );
-        setPdfUrl(url);
-      } catch (error) {
-        console.error("Error fetching the PDF", error);
-      }
-    };
+  const [suppliedTo,setSuppliedTo]=useState(null)
+  
+  const [vendorId,setVendorId]=useState(null)
+  
+  const [componentId,setComponentId]=useState(null)
 
-    fetchPdf();
-    return () => {
-      URL.revokeObjectURL(pdfUrl);
-    };
-  }, [pdfId]);
+  useEffect(() => {
+      const fetchPdf = async () => {
+        if (!pdfId || !loginUser?.user_id) return; // Ensure both values are available
+    
+        try {
+          const response = await axios.get(`http://localhost:5000/view`, {
+            params: { 
+              invoice_no: pdfId, 
+              user_id: loginUser.user_id 
+            },
+            responseType: "blob",
+          });
+          const url = URL.createObjectURL(
+            new Blob([response.data], { type: "application/pdf" })
+          );
+          setPdfUrl(url);
+        } catch (error) {
+          console.error("Error fetching the PDF", error);
+        }
+      };
+    
+      fetchPdf();
+    }, [pdfId, loginUser?.user_id]); // Runs when pdfId or user_id changes
+    
+    
 
   const handlesubmit = () => {
     if (
@@ -101,6 +114,7 @@ function SearchByInvoice() {
       axios
         .put("http://127.0.0.1:5000/purchasedcomponents/put", {
           id: editID,
+          user_id:loginUser.user_id,
           selectedVendor: selectedVendor,
           selectedComponentPurchased: selectedComponentPurchased,
           QuantityPurchased: QuantityPurchased,
@@ -108,22 +122,30 @@ function SearchByInvoice() {
           PurchasedDate: PurchasedDate,
           StockEntry: StockEntry,
           InvoiceNo: InvoiceNo,
+          suppliedTo:suppliedTo,
+          componentId:componentId,
+          vendorId:vendorId
         })
-        .then((r) => seteditstatus(r.data))
-        .catch((err) => seteditstatus(err.response.editstatus));
+        .then((r) =>{
+           seteditstatus(201);
+           })
+        .catch((err) => seteditstatus(400));
     } else {
       seteditstatus(400);
     }
   };
 
   function DeleteSelectedComponent() {
+  
     axios
-      .delete(`http://127.0.0.1:5000/purchasedcomponents/delete/${delID}/`)
+      .delete(`http://127.0.0.1:5000/purchasedcomponents/delete/${delID}/${componentId}/${InvoiceNo}/${vendorId}/`)
       .then((r) => {
-        setdelstatus(r.data);
+        setdelstatus(201);
       })
-      .catch((err) => setdelstatus(err.response.editstatus));
-  }
+      .catch((err) => setdelstatus(400));
+    }
+
+
 
   useEffect(() => {
     setData([]);
@@ -139,33 +161,37 @@ function SearchByInvoice() {
 
   useEffect(() => {
     axios
-      .get(`http://127.0.0.1:5000/purchasedcomponents/get/invoice`)
+      .get(`http://127.0.0.1:5000/purchasedcomponents/get/invoice`, {
+        params: { user_id: loginUser.user_id } // Send user_id as a query parameter
+      })
       .then((r) => setInvoiceData(r.data))
       .catch((err) => console.log(err.response?.status));
   }, []);
 
+  
   useEffect(() => {
+    console.log("invoice no is ",InvoiceNo)
     axios
       .put(
         `http://127.0.0.1:5000/purchasedcomponents/get/components/invoice/${sort}/`,
         {
           InvoiceNo: InvoiceNo,
+          user_id:loginUser.user_id
         }
       )
       .then((r) => {
         const invoices = r.data;
+        console.log("Invoices data from backend is ",r.data[0].items[0]   )
 
         let QuantityArray = [];
 
         invoices.forEach((invoice) => {
           let Quantities = 0;
           invoice.items.forEach((item) => {
-            Quantities += parseInt(item.quantity_purchased);
+            Quantities += parseInt(item.purchased_quantity);
           });
           QuantityArray.push(Quantities);
         });
-
-        // console.log(QuantityArray)
 
         setTotalComponents(QuantityArray);
         setData(r.data);
@@ -179,6 +205,7 @@ function SearchByInvoice() {
         `http://127.0.0.1:5000/invoice/generate_pdf/${sort}/`,
         {
           InvoiceNo: InvoiceNo,
+          user_id:loginUser.user_id
         },
         { responseType: "blob" }
       )
@@ -193,7 +220,7 @@ function SearchByInvoice() {
         link.click();
         link.remove();
       })
-      .catch((error) => console.log(error));
+      .catch((error) => console.log("error in ivoices is ",error));
   };
 
   return (
@@ -546,6 +573,7 @@ function SearchByInvoice() {
                       }}
                       type="text"
                       class="form-control"
+                      readOnly
                     ></input>
                   </div>
                 </div>
@@ -780,7 +808,7 @@ function SearchByInvoice() {
                               <div>
                                 <Button
                                   onClick={() => {
-                                    setpdfId(d.items[0].id);
+                                    setpdfId(d.items[0].invoice_no);
                                     setshowpdf(true);
                                   }}
                                   className="btn btn-success"
@@ -813,10 +841,10 @@ function SearchByInvoice() {
                                     backgroundColor: "#f4e9e3",
                                   }}
                                 >
-                                  <h6>{item.component_purchased}</h6>
+                                  <h6>{item.component_name}</h6>
                                 </div>
                                 <div className="p-3">
-                                  <h6>Quantity : {item.quantity_purchased}</h6>
+                                  <h6>Quantity : {item.purchased_quantity}</h6>
                                   <h6>
                                     Purchased Price : {item.purchased_price}rs
                                   </h6>
@@ -833,19 +861,22 @@ function SearchByInvoice() {
                                     <Button
                                       style={{ borderRadius: "50%" }}
                                       onClick={() => {
+                                        setComponentId(item.component_id);
+                                        setVendorId(item.vendor_id);
                                         setSelectedVendor(d.vendor_name);
                                         setPurchasedDate(d.purchased_date);
                                         setInvoiceNo(d.invoice_no);
                                         setSelectedComponentPurchased(
-                                          item.component_purchased
+                                          item.component_name
                                         );
                                         setQuantityPurchased(
-                                          item.quantity_purchased
+                                          item.purchased_quantity
                                         );
                                         setPurchasedPrice(item.purchased_price);
                                         setStockEntry(item.stock_entry);
                                         seteditShow(true);
-                                        seteditID(item.id);
+                                        seteditID(item.purchases_id);
+                                        setSuppliedTo(item.supplied_to)
                                       }}
                                       className="btn btn-primary p-2"
                                     >
@@ -873,7 +904,7 @@ function SearchByInvoice() {
                                         setPurchasedPrice(item.purchased_price);
                                         setStockEntry(item.stock_entry);
                                         setdelShow(true);
-                                        setdelID(item.id);
+                                        setdelID(item.purchases_id);
                                       }}
                                       className="btn btn-danger p-2"
                                     >
@@ -899,8 +930,8 @@ function SearchByInvoice() {
                         <h6>
                           Supplied To {d.supplied_to} | Purchased Date :{" "}
                           {d.purchased_date} | Updated Date :{" "}
-                          {d.updated_date.split("T")[0]} | Updated Time :{" "}
-                          {d.updated_date.split("T")[1]}
+                          {d.updated_date.split(" ")[0]} | Updated Time :{" "}
+                          {d.updated_date.split(" ")[1]}
                         </h6>
                       </div>
                     </div>

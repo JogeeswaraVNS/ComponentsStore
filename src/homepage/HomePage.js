@@ -1,14 +1,18 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState,useContext } from "react";
 import { useSpring, animated } from "@react-spring/web";
+import { logincontext } from "../contextapi/contextapi";
 import axios from "axios";
 
 function HomePage() {
+
+  const [loginUser, setLoginUser] = useContext(logincontext);
+
   const [Data, setData] = useState(null);
 
   useEffect(() => {
     const fetchData = async () => {
       try {
-        const response = await axios.get(`http://127.0.0.1:5000/home`);
+        const response = await axios.get(`http://127.0.0.1:5000/home?user_id=${loginUser.user_id}`);
         setData(response.data);
       } catch (err) {
         console.log(err.response?.status);

@@ -1,5 +1,5 @@
 import { Autocomplete, TextField } from "@mui/material";
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useContext } from "react";
 import AddIcon from "@mui/icons-material/Add";
 import RemoveIcon from "@mui/icons-material/Remove";
 import { Modal, ModalBody, ModalFooter } from "react-bootstrap";
@@ -9,13 +9,18 @@ import EditIcon from "@mui/icons-material/Edit";
 import CloseIcon from "@mui/icons-material/Close";
 import DoneIcon from "@mui/icons-material/Done";
 import Select from "react-select";
-
+import { logincontext } from "../contextapi/contextapi";
 import axios from "axios";
 
 function AddComponents() {
+
+  const [loginUser, setLoginUser] = useContext(logincontext);
+
   const [components, setComponents] = useState([]);
 
   const [file, setFile] = useState(null);
+
+  const [fileSizeError,setFileSizeError]=useState(false)
 
   const handleFileChange = (event) => {
     setFile(event.target.files[0]);
@@ -58,6 +63,7 @@ function AddComponents() {
 
   const [isOtherSelected, setIsOtherSelected] = useState(false);
 
+
   useEffect(() => {
     axios
       .get("http://127.0.0.1:5000/get/options")
@@ -94,8 +100,22 @@ function AddComponents() {
     setStockEntry("");
   };
 
+
   const handlesubmit = () => {
+  
+    const maxSize = 5 * 1024 * 1024; // 5MB in bytes
+  
+    if (file.size > maxSize) {
+      console.log("yes")
+      setFileSizeError(true);
+      setselectedsubmit(true)
+      return;
+    }
+    else
+    {
     const formData = new FormData();
+    setFileSizeError(false)
+   
     formData.append("file", file);
     formData.append("vendor", selectedVendor);
     formData.append("PurchasedDate", PurchasedDate);
@@ -105,16 +125,19 @@ function AddComponents() {
       "suppliedTo",
       selectedOption?.value === "Others" ? customOption : selectedOption?.value
     );
-
+    formData.append("user_id", loginUser.user_id);
+  
     axios
       .post("http://localhost:5000/purchasedcomponents/postall", formData, {
         headers: { "Content-Type": "multipart/form-data" },
       })
-      .then((r) => setstatus(r.data))
-      .catch((err) => setstatus(err.response.status));
-
+      .then((r) =>{setstatus(201)}) // Use `r.status` instead of `r.data`
+      .catch((err) =>{setstatus(400 || 500)}); // Handle `undefined` response
+  
     setselectedsubmit(true);
+    }
   };
+  
   const handleadd = () => {
     if (
       selectedComponentPurchased !== null &&
@@ -211,6 +234,28 @@ function AddComponents() {
               </h3>
             </div>
           )}
+
+          {fileSizeError && (
+            <div>
+              <div>
+                <svg
+                  style={{ display: "block", margin: "auto" }}
+                  fill="#dc3545"
+                  xmlns="http://www.w3.org/2000/svg"
+                  height="100"
+                  width="100"
+                  viewBox="0 0 512 512"
+                >
+                  <path d="M256 512A256 256 0 1 0 256 0a256 256 0 1 0 0 512zm0-384c13.3 0 24 10.7 24 24V264c0 13.3-10.7 24-24 24s-24-10.7-24-24V152c0-13.3 10.7-24 24-24zM224 352a32 32 0 1 1 64 0 32 32 0 1 1 -64 0z" />
+                </svg>
+              </div>
+
+              <h3 style={{ textAlign: "center" }} className="text-danger mt-3">
+                File size exceeds 5MB. Please upload a smaller file.
+              </h3>
+            </div>
+          )}
+
 
           <div style={{ display: "flex", justifyContent: "center" }}>
             <button
@@ -654,13 +699,13 @@ function AddComponents() {
                 ></input>
               </div>
               <div className="col mt-1">
-            <input
-              className="form-control btn btn-outline-dark"
-              type="file"
-              accept=".pdf"
-              onChange={handleFileChange}
-            />
-          </div>
+                <input
+                  className="form-control btn btn-outline-dark"
+                  type="file"
+                  accept=".pdf"
+                  onChange={handleFileChange}
+                />
+              </div>
             </div>
           </div>
 
@@ -687,22 +732,22 @@ function AddComponents() {
             {isOtherSelected && (
               <div className="col-auto">
                 <div className="row">
-                <div className="col-auto">
-                  <label for="custom-supplied-to" class="form-label">
-                    <h5 className="mt-2">Specify Other</h5>
-                  </label>
-                </div>
-                <div className="col-auto">
-                <input
-                style={{ border: "1px solid black" }}
-                className="form-control"
-                  type="text"
-                  id="custom-supplied-to"
-                  value={customOption}
-                  onChange={(e) => setCustomOption(e.target.value)}
-                  required
-                />
-                </div>
+                  <div className="col-auto">
+                    <label for="custom-supplied-to" class="form-label">
+                      <h5 className="mt-2">Specify Other</h5>
+                    </label>
+                  </div>
+                  <div className="col-auto">
+                    <input
+                      style={{ border: "1px solid black" }}
+                      className="form-control"
+                      type="text"
+                      id="custom-supplied-to"
+                      value={customOption}
+                      onChange={(e) => setCustomOption(e.target.value)}
+                      required
+                    />
+                  </div>
                 </div>
               </div>
             )}

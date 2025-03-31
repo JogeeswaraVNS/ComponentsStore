@@ -1,5 +1,6 @@
 import axios from "axios";
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState,useContext } from "react";
+import { logincontext } from "../contextapi/contextapi";
 import Button from "react-bootstrap/Button";
 import EditIcon from "@mui/icons-material/Edit";
 import DeleteIcon from "@mui/icons-material/Delete";
@@ -13,6 +14,9 @@ import VisibilityIcon from "@mui/icons-material/Visibility";
 import DownloadIcon from "@mui/icons-material/Download";
 
 function SearchBySuppliedTo() {
+
+  const [loginUser, setLoginUser] = useContext(logincontext);
+
   const [pdfUrl, setPdfUrl] = useState("");
 
   const [pdfId, setpdfId] = useState("");
@@ -65,16 +69,23 @@ function SearchBySuppliedTo() {
   const [editstatus, seteditstatus] = useState(null);
 
   const [delstatus, setdelstatus] = useState(null);
-
-  useEffect(() => {
+  
+  const [vendorId,setVendorId]=useState(null)
+  
+  const [componentId,setComponentId]=useState(null)
+  
+ useEffect(() => {
     const fetchPdf = async () => {
+      if (!pdfId || !loginUser?.user_id) return; // Ensure both values are available
+  
       try {
-        const response = await axios.get(
-          `http://localhost:5000/view/${pdfId}`,
-          {
-            responseType: "blob",
-          }
-        );
+        const response = await axios.get(`http://localhost:5000/view`, {
+          params: { 
+            invoice_no: pdfId, 
+            user_id: loginUser.user_id 
+          },
+          responseType: "blob",
+        });
         const url = URL.createObjectURL(
           new Blob([response.data], { type: "application/pdf" })
         );
@@ -83,49 +94,55 @@ function SearchBySuppliedTo() {
         console.error("Error fetching the PDF", error);
       }
     };
-
+  
     fetchPdf();
-    return () => {
-      URL.revokeObjectURL(pdfUrl);
-    };
-  }, [pdfId]);
+  }, [pdfId, loginUser?.user_id]); // Runs when pdfId or user_id changes
 
-  const handlesubmit = () => {
-    if (
-      selectedVendor !== null &&
-      selectedComponentPurchased !== null &&
-      QuantityPurchased !== 0 &&
-      PurchasedPrice !== null &&
-      PurchasedDate !== null &&
-      StockEntry !== null &&
-      InvoiceNo !== null
-    ) {
+   const handlesubmit = () => {
+     console.log("componet id is ",componentId," vendor id is ",vendorId)
+     if (
+       selectedVendor !== null &&
+       selectedComponentPurchased !== null &&
+       QuantityPurchased !== 0 &&
+       PurchasedPrice !== null &&
+       PurchasedDate !== null &&
+       StockEntry !== null &&
+       InvoiceNo !== null
+     ) {
+       axios
+         .put("http://127.0.0.1:5000/purchasedcomponents/put", {
+           id: editID,
+           user_id:loginUser.user_id,
+           selectedVendor: selectedVendor,
+           selectedComponentPurchased: selectedComponentPurchased,
+           QuantityPurchased: QuantityPurchased,
+           PurchasedPrice: PurchasedPrice,
+           PurchasedDate: PurchasedDate,
+           StockEntry: StockEntry,
+           InvoiceNo: InvoiceNo,
+           suppliedTo:SuppliedTo,
+           componentId:componentId,
+           vendorId:vendorId
+         })
+         .then((r) =>{
+            seteditstatus(201);
+            })
+         .catch((err) => seteditstatus(400));
+     } else {
+       seteditstatus(400);
+     }
+   };
+
+   function DeleteSelectedComponent() {
+    
       axios
-        .put("http://127.0.0.1:5000/purchasedcomponents/put", {
-          id: editID,
-          selectedVendor: selectedVendor,
-          selectedComponentPurchased: selectedComponentPurchased,
-          QuantityPurchased: QuantityPurchased,
-          PurchasedPrice: PurchasedPrice,
-          PurchasedDate: PurchasedDate,
-          StockEntry: StockEntry,
-          InvoiceNo: InvoiceNo,
+        .delete(`http://127.0.0.1:5000/purchasedcomponents/delete/${delID}/${componentId}/${InvoiceNo}/${vendorId}/`)
+        .then((r) => {
+          setdelstatus(201);
         })
-        .then((r) => seteditstatus(r.data))
-        .catch((err) => seteditstatus(err.response.editstatus));
-    } else {
-      seteditstatus(400);
-    }
-  };
-
-  function DeleteSelectedComponent() {
-    axios
-      .delete(`http://127.0.0.1:5000/purchasedcomponents/delete/${delID}/`)
-      .then((r) => {
-        setdelstatus(r.data);
-      })
-      .catch((err) => setdelstatus(err.response.editstatus));
+        .catch((err) => setdelstatus(400));
   }
+  
 
   useEffect(() => {
     setData([]);
@@ -133,6 +150,7 @@ function SearchBySuppliedTo() {
       axios
         .put(`http://127.0.0.1:5000/purchasedcomponents/put/suppliedto`, {
           SuppliedToInput: SuppliedToInput,
+          user_id:loginUser.user_id
         })
         .then((r) => setSuppliedToData(r.data))
         .catch((err) => console.log(err.response?.status));
@@ -141,10 +159,13 @@ function SearchBySuppliedTo() {
 
   useEffect(() => {
     axios
-      .get(`http://127.0.0.1:5000/purchasedcomponents/get/suppliedto`)
+      .get(`http://127.0.0.1:5000/purchasedcomponents/get/suppliedto`, {
+        params: { user_id: loginUser.user_id }, 
+      })
       .then((r) => setSuppliedToData(r.data))
       .catch((err) => console.log(err.response?.status));
   }, []);
+  
 
   useEffect(() => {
     axios
@@ -152,17 +173,17 @@ function SearchBySuppliedTo() {
         `http://127.0.0.1:5000/purchasedcomponents/get/components/suppliedto/${sort}/`,
         {
           SuppliedTo: SuppliedTo,
+          user_id:loginUser.user_id
         }
       )
       .then((r) => {
         const invoices = r.data;
-
         let QuantityArray = [];
 
         invoices.forEach((invoice) => {
           let Quantities = 0;
           invoice.items.forEach((item) => {
-            Quantities += parseInt(item.quantity_purchased);
+            Quantities += parseInt(item.purchased_quantity);
           });
           QuantityArray.push(Quantities);
         });
@@ -181,6 +202,7 @@ function SearchBySuppliedTo() {
         `http://127.0.0.1:5000/suppliedto/generate_pdf/${sort}/`,
         {
           SuppliedTo: SuppliedTo,
+          user_id:loginUser.user_id
         },
         { responseType: "blob" }
       )
@@ -541,6 +563,7 @@ function SearchBySuppliedTo() {
                   <div className="col">
                     <input
                       required
+                      readOnly
                       style={{ border: "1px solid black" }}
                       value={InvoiceNo}
                       onChange={(event) => {
@@ -709,6 +732,7 @@ function SearchBySuppliedTo() {
             >
               <div
                 onClick={() => {
+                  console.log(d);
                   setSuppliedTo(d);
                   setshow(!show);
                   setselectedSuppliedToIdx(idx);
@@ -782,7 +806,7 @@ function SearchBySuppliedTo() {
                               <div>
                                 <Button
                                   onClick={() => {
-                                    setpdfId(d.items[0].id);
+                                    setpdfId(d.items[0].invoice_no);
                                     setshowpdf(true);
                                   }}
                                   className="btn btn-success"
@@ -815,10 +839,10 @@ function SearchBySuppliedTo() {
                                     backgroundColor: "#f4e9e3",
                                   }}
                                 >
-                                  <h6>{item.component_purchased}</h6>
+                                  <h6>{item.component_name}</h6>
                                 </div>
                                 <div className="p-3">
-                                  <h6>Quantity : {item.quantity_purchased}</h6>
+                                  <h6>Quantity : {item.purchased_quantity}</h6>
                                   <h6>
                                     Purchased Price : {item.purchased_price}rs
                                   </h6>
@@ -835,19 +859,21 @@ function SearchBySuppliedTo() {
                                     <Button
                                       style={{ borderRadius: "50%" }}
                                       onClick={() => {
+                                        setComponentId(item.component_id);
+                                        setVendorId(item.vendor_id);
                                         setSelectedVendor(d.vendor_name);
                                         setPurchasedDate(d.purchased_date);
                                         setInvoiceNo(d.invoice_no);
                                         setSelectedComponentPurchased(
-                                          item.component_purchased
+                                          item.component_name
                                         );
                                         setQuantityPurchased(
-                                          item.quantity_purchased
+                                          item.purchased_quantity
                                         );
                                         setPurchasedPrice(item.purchased_price);
                                         setStockEntry(item.stock_entry);
                                         seteditShow(true);
-                                        seteditID(item.id);
+                                        seteditID(item.purchases_id);
                                       }}
                                       className="btn btn-primary p-2"
                                     >
@@ -863,19 +889,21 @@ function SearchBySuppliedTo() {
                                     <Button
                                       style={{ borderRadius: "50%" }}
                                       onClick={() => {
+                                        setComponentId(item.component_id);
+                                        setVendorId(item.vendor_id);
                                         setSelectedVendor(d.vendor_name);
                                         setPurchasedDate(d.purchased_date);
                                         setInvoiceNo(d.invoice_no);
                                         setSelectedComponentPurchased(
-                                          item.component_purchased
+                                          item.component_name
                                         );
                                         setQuantityPurchased(
-                                          item.quantity_purchased
+                                          item.purchased_quantity
                                         );
                                         setPurchasedPrice(item.purchased_price);
                                         setStockEntry(item.stock_entry);
                                         setdelShow(true);
-                                        setdelID(item.id);
+                                        setdelID(item.purchases_id);
                                       }}
                                       className="btn btn-danger p-2"
                                     >
@@ -901,8 +929,8 @@ function SearchBySuppliedTo() {
                         <h6>
                           Purchased Date :{" "}
                           {d.purchased_date} | Updated Date :{" "}
-                          {d.updated_date.split("T")[0]} | Updated Time :{" "}
-                          {d.updated_date.split("T")[1]}
+                          {d.updated_date.split(" ")[0]} | Updated Time :{" "}
+                          {d.updated_date.split(" ")[1]}
                         </h6>
                       </div>
                     </div>

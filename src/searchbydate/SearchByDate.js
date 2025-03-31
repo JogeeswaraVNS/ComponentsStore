@@ -1,6 +1,7 @@
 import axios from "axios";
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useContext } from "react";
 import { Modal, ModalBody, ModalFooter } from "react-bootstrap";
+import { logincontext } from "../contextapi/contextapi";
 import CloseIcon from "@mui/icons-material/Close";
 import DoneIcon from "@mui/icons-material/Done";
 import AddIcon from "@mui/icons-material/Add";
@@ -14,6 +15,9 @@ import DeleteIcon from "@mui/icons-material/Delete";
 import Select from "react-select";
 
 function SearchByDate() {
+
+  const [loginUser, setLoginUser] = useContext(logincontext);
+
   const [pdfUrl, setPdfUrl] = useState("");
 
   const [pdfId, setpdfId] = useState("");
@@ -78,15 +82,24 @@ function SearchByDate() {
 
   const [TotalComponents, setTotalComponents] = useState(0);
 
+  
+  const [vendorId,setVendorId]=useState(null)
+  
+  const [componentId,setComponentId]=useState(null)
+
+  
   useEffect(() => {
     const fetchPdf = async () => {
+      if (!pdfId || !loginUser?.user_id) return; // Ensure both values are available
+  
       try {
-        const response = await axios.get(
-          `http://localhost:5000/view/${pdfId}`,
-          {
-            responseType: "blob",
-          }
-        );
+        const response = await axios.get(`http://localhost:5000/view`, {
+          params: { 
+            invoice_no: pdfId, 
+            user_id: loginUser.user_id 
+          },
+          responseType: "blob",
+        });
         const url = URL.createObjectURL(
           new Blob([response.data], { type: "application/pdf" })
         );
@@ -95,18 +108,17 @@ function SearchByDate() {
         console.error("Error fetching the PDF", error);
       }
     };
-
+  
     fetchPdf();
-    return () => {
-      URL.revokeObjectURL(pdfUrl);
-    };
-  }, [pdfId]);
+  }, [pdfId, loginUser?.user_id]); // Runs when pdfId or user_id changes
+  
 
   useEffect(() => {
     axios
       .put(`http://127.0.0.1:5000/get/component/options`, {
         FromDate: FromDate,
         ToDate: ToDate,
+        user_id: loginUser.user_id
       })
       .then((response) => {
         const options = response.data.map((option) => ({
@@ -115,14 +127,16 @@ function SearchByDate() {
         }));
         setComponentOptions(options);
       })
-      .catch((err) => console.log(err.response.status));
+      .catch((err) => console.log(err));
 
     axios
       .put(`http://127.0.0.1:5000/get/vendor/options`, {
         FromDate: FromDate,
         ToDate: ToDate,
+        user_id: loginUser.user_id
       })
       .then((response) => {
+        console.log("vendor data is ", response.data)
         const options = response.data.map((option) => ({
           value: option,
           label: option,
@@ -135,8 +149,10 @@ function SearchByDate() {
       .put("http://127.0.0.1:5000/get/suppliedto/options", {
         FromDate: FromDate,
         ToDate: ToDate,
+        user_id: loginUser.user_id
       })
       .then((response) => {
+        console.log("supplied to options is ", response.data)
         const options = response.data.map((option) => ({
           value: option,
           label: option,
@@ -146,43 +162,52 @@ function SearchByDate() {
       .catch((error) => {
         console.error("Error fetching supplied to options:", error);
       });
-  }, [FromDate,ToDate]);
+  }, [FromDate, ToDate]);
 
-  const handlesubmit = () => {
-    if (
-      selectedVendor !== null &&
-      selectedComponentPurchased !== null &&
-      QuantityPurchased !== 0 &&
-      PurchasedPrice !== null &&
-      PurchasedDate !== null &&
-      StockEntry !== null &&
-      InvoiceNo !== null
-    ) {
+  
+    const handlesubmit = () => {
+      console.log("componet id is ",componentId," vendor id is ",vendorId)
+      if (
+        selectedVendor !== null &&
+        selectedComponentPurchased !== null &&
+        QuantityPurchased !== 0 &&
+        PurchasedPrice !== null &&
+        PurchasedDate !== null &&
+        StockEntry !== null &&
+        InvoiceNo !== null
+      ) {
+        axios
+          .put("http://127.0.0.1:5000/purchasedcomponents/put", {
+            id: editID,
+            user_id:loginUser.user_id,
+            selectedVendor: selectedVendor,
+            selectedComponentPurchased: selectedComponentPurchased,
+            QuantityPurchased: QuantityPurchased,
+            PurchasedPrice: PurchasedPrice,
+            PurchasedDate: PurchasedDate,
+            StockEntry: StockEntry,
+            InvoiceNo: InvoiceNo,
+            suppliedTo:SuppliedTo,
+            componentId:componentId,
+            vendorId:vendorId
+          })
+          .then((r) =>{
+             seteditstatus(201);
+             })
+          .catch((err) => seteditstatus(400));
+      } else {
+        seteditstatus(400);
+      }
+    };
+
+   function DeleteSelectedComponent() {
+    
       axios
-        .put("http://127.0.0.1:5000/purchasedcomponents/put", {
-          id: editID,
-          selectedVendor: selectedVendor,
-          selectedComponentPurchased: selectedComponentPurchased,
-          QuantityPurchased: QuantityPurchased,
-          PurchasedPrice: PurchasedPrice,
-          PurchasedDate: PurchasedDate,
-          StockEntry: StockEntry,
-          InvoiceNo: InvoiceNo,
+        .delete(`http://127.0.0.1:5000/purchasedcomponents/delete/${delID}/${componentId}/${InvoiceNo}/${vendorId}/`)
+        .then((r) => {
+          setdelstatus(201);
         })
-        .then((r) => seteditstatus(r.data))
-        .catch((err) => seteditstatus(err.response.editstatus));
-    } else {
-      seteditstatus(400);
-    }
-  };
-
-  function DeleteSelectedComponent() {
-    axios
-      .delete(`http://127.0.0.1:5000/purchasedcomponents/delete/${delID}/`)
-      .then((r) => {
-        setdelstatus(r.data);
-      })
-      .catch((err) => setdelstatus(err.response.editstatus));
+        .catch((err) => setdelstatus(400));
   }
 
   const handleSelectChangeComponent = (selectedOption) => {
@@ -192,6 +217,7 @@ function SearchByDate() {
         from_date: FromDate,
         to_date: ToDate,
         Component: selectedOption.value,
+        user_id: loginUser.user_id
       })
       .then((r) => setData(r.data))
       .catch((err) => console.log(err.response?.status));
@@ -204,6 +230,7 @@ function SearchByDate() {
         from_date: FromDate,
         to_date: ToDate,
         Vendor: selectedOption.value,
+        user_id:loginUser.user_id
       })
       .then((r) => {
         const invoices = r.data;
@@ -231,6 +258,7 @@ function SearchByDate() {
         from_date: FromDate,
         to_date: ToDate,
         SuppliedTo: selectedOption.value,
+        user_id:loginUser.user_id
       })
       .then((r) => setData(r.data))
       .catch((err) => console.log(err.response?.status));
@@ -244,6 +272,7 @@ function SearchByDate() {
           from_date: FromDate,
           to_date: ToDate,
           Component: Component.value,
+          user_id:loginUser.user_id
         },
         { responseType: "blob" }
       )
@@ -272,6 +301,7 @@ function SearchByDate() {
           from_date: FromDate,
           to_date: ToDate,
           Vendor: Vendor.value,
+          user_id:loginUser.user_id
         },
         { responseType: "blob" }
       )
@@ -300,6 +330,7 @@ function SearchByDate() {
           from_date: FromDate,
           to_date: ToDate,
           SuppliedTo: SuppliedTo.value,
+          user_id:loginUser.user_id
         },
         { responseType: "blob" }
       )
@@ -696,6 +727,7 @@ function SearchByDate() {
                   <div className="col">
                     <input
                       required
+                      readOnly
                       style={{ border: "1px solid black" }}
                       value={InvoiceNo}
                       onChange={(event) => {
@@ -876,109 +908,95 @@ function SearchByDate() {
             style={{ overflowY: "scroll", height: "31.5rem" }}
             className="row pt-1"
           >
-            {Data.map((d) => (
-              <div className="col-4 mt-4 px-3 pb-2">
-                <div className="card">
-                  <div className="">
-                    <div style={{ textAlign: "center" }}>
-                      <Button
-                        onClick={() => {
-                          setpdfId(d.id);
-                          setshowpdf(true);
-                        }}
-                        style={{ width: "100%", borderRadius: "0" }}
-                        className="btn btn-success"
-                      >
-                        <VisibilityIcon
-                          className="pb-1"
-                          style={{
-                            height: "1.8rem",
-                            width: "1.8rem",
+            {Data.map((d) =>
+              d.items.map((item, index) => (
+                <div className="col-4 mt-4 px-3 pb-2" key={`${d.id}-${index}`}>
+                  <div className="card">
+                    <div className="">
+                      <div style={{ textAlign: "center" }}>
+                        <Button
+                          onClick={() => {
+                            setpdfId(d.invoice_no);
+                            setshowpdf(true);
                           }}
-                        ></VisibilityIcon>
-                        <h6 className="d-inline ps-1">View Invoice</h6>
-                      </Button>
+                          style={{ width: "100%", borderRadius: "0" }}
+                          className="btn btn-success"
+                        >
+                          <VisibilityIcon
+                            className="pb-1"
+                            style={{
+                              height: "1.8rem",
+                              width: "1.8rem",
+                            }}
+                          />
+                          <h6 className="d-inline ps-1">View Invoice</h6>
+                        </Button>
+                      </div>
                     </div>
-                  </div>
-                  <div
-                    className="p-3"
-                    style={{
-                      backgroundColor: "#f4e9e3",
-                    }}
-                  >
-                    <h6>{d.vendor_name}</h6>
-                  </div>
-
-                  <div className="card-body">
-                    <h6>Invoice No. : {d.invoice_no}</h6>
-                    <h6>Quantity : {d.quantity_purchased}</h6>
-                    <h6>Purchased Price : {d.purchased_price}rs</h6>
-                    <h6>Stock Entry : {d.stock_entry}</h6>
-                    <h6>Purchased Date : {d.purchased_date}</h6>
-                    <h6>Updated Date : {d.updated_date.split("T")[0]}</h6>
-                    <h6>Updated Time : {d.updated_date.split("T")[1]}</h6>
-                  </div>
-                  <div
-                    className="p-3"
-                    style={{
-                      backgroundColor: "#f4e9e3",
-                    }}
-                  >
-                    <h6>Supplied to {d.supplied_to}</h6>
-                  </div>
-                  <div
-                    className="py-3"
-                    style={{
-                      display: "flex",
-                      justifyContent: "space-evenly",
-                    }}
-                  >
-                    <div>
-                      <Button
-                        style={{ borderRadius: "50%" }}
-                        onClick={() => {
-                          setSelectedVendor(d.vendor_name);
-                          setSelectedComponentPurchased(d.component_purchased);
-                          setQuantityPurchased(d.quantity_purchased);
-                          setPurchasedPrice(d.purchased_price);
-                          setPurchasedDate(d.purchased_date);
-                          setStockEntry(d.stock_entry);
-                          setInvoiceNo(d.invoice_no);
-                          seteditShow(true);
-                          seteditID(d.id);
-                        }}
-                        className="btn btn-primary p-2"
-                      >
-                        <EditIcon
-                          style={{ height: "1.5rem", width: "1.5rem" }}
-                        ></EditIcon>
-                      </Button>
+                    <div className="p-3" style={{ backgroundColor: "#f4e9e3" }}>
+                      <h6>{d.vendor_name}</h6>
                     </div>
-                    <div>
-                      <Button
-                        style={{ borderRadius: "50%" }}
-                        onClick={() => {
-                          setSelectedVendor(d.vendor_name);
-                          setSelectedComponentPurchased(d.component_purchased);
-                          setQuantityPurchased(d.quantity_purchased);
-                          setPurchasedPrice(d.purchased_price);
-                          setPurchasedDate(d.purchased_date);
-                          setStockEntry(d.stock_entry);
-                          setInvoiceNo(d.invoice_no);
-                          setdelShow(true);
-                          setdelID(d.id);
-                        }}
-                        className="btn btn-danger p-2"
-                      >
-                        <DeleteIcon
-                          style={{ height: "1.5rem", width: "1.5rem" }}
-                        ></DeleteIcon>
-                      </Button>
+                    <div className="card-body" onClick={() => console.log(item)}>
+                      <h6>Invoice No. : {d.invoice_no}</h6>
+                      <h6>Quantity : {item.quantity_purchased}</h6>
+                      <h6>Purchased Price : {item.purchased_price}rs</h6>
+                      <h6>Stock Entry : {item.stock_entry}</h6>
+                      <h6>Purchased Date : {item.purchased_date}</h6>
+                      <h6>Updated Date : {item.updated_date.split(" ").slice(0,4).join(" ")}</h6>
+                      <h6>Updated Time : {item.updated_date.split(" ").slice(4,).join(" ")}</h6>
+                    </div>
+                    <div className="p-3" style={{ backgroundColor: "#f4e9e3" }}>
+                      <h6>Supplied to {item.supplied_to}</h6>
+                    </div>
+                    <div className="py-3" style={{ display: "flex", justifyContent: "space-evenly" }}>
+                      <div>
+                        <Button
+                          style={{ borderRadius: "50%" }}
+                          onClick={() => {
+                            setComponentId(item.component_id);
+                            setVendorId(item.vendor_id);
+                            setSelectedVendor(d.vendor_name);
+                            setSelectedComponentPurchased(item.component_purchased);
+                            setQuantityPurchased(item.quantity_purchased);
+                            setPurchasedPrice(item.purchased_price);
+                            setPurchasedDate(item.purchased_date);
+                            setStockEntry(item.stock_entry);
+                            setInvoiceNo(d.invoice_no);
+                            seteditShow(true);
+                            setSuppliedTo(item.supplied_to)
+                            seteditID(item.purchase_id);
+                          }}
+                          className="btn btn-primary p-2"
+                        >
+                          <EditIcon style={{ height: "1.5rem", width: "1.5rem" }} />
+                        </Button>
+                      </div>
+                      <div>
+                        <Button
+                          style={{ borderRadius: "50%" }}
+                          onClick={() => {
+                            setComponentId(item.component_id);
+                            setVendorId(item.vendor_id);
+                            setSelectedVendor(d.vendor_name);
+                            setSelectedComponentPurchased(item.component_purchased);
+                            setQuantityPurchased(item.quantity_purchased);
+                            setPurchasedPrice(item.purchased_price);
+                            setPurchasedDate(item.purchased_date);
+                            setStockEntry(item.stock_entry);
+                            setInvoiceNo(d.invoice_no);
+                            setdelShow(true);
+                            setdelID(item.purchase_id);
+                          }}
+                          className="btn btn-danger p-2"
+                        >
+                          <DeleteIcon style={{ height: "1.5rem", width: "1.5rem" }} />
+                        </Button>
+                      </div>
                     </div>
                   </div>
                 </div>
-              </div>
-            ))}
+              ))
+            )}
             {Data.length === 0 && (
               <div className="pt-3">
                 <h5>Select Component</h5>
@@ -1085,7 +1103,7 @@ function SearchByDate() {
                           <div>
                             <Button
                               onClick={() => {
-                                setpdfId(d.items[0].id);
+                                setpdfId(d.items[0].invoice_no);
                                 setshowpdf(true);
                               }}
                               className="btn btn-success"
@@ -1136,6 +1154,9 @@ function SearchByDate() {
                                 <Button
                                   style={{ borderRadius: "50%" }}
                                   onClick={() => {
+                                    console.log("item is ",item)
+                                    setComponentId(item.component_id);
+                                    setVendorId(item.vendor_id);
                                     setSelectedVendor(d.vendor_name);
                                     setPurchasedDate(d.purchased_date);
                                     setInvoiceNo(d.invoice_no);
@@ -1148,7 +1169,8 @@ function SearchByDate() {
                                     setPurchasedPrice(item.purchased_price);
                                     setStockEntry(item.stock_entry);
                                     seteditShow(true);
-                                    seteditID(item.id);
+                                    setSuppliedTo(d.supplied_to)
+                                    seteditID(item.purchase_id);
                                   }}
                                   className="btn btn-primary p-2"
                                 >
@@ -1164,6 +1186,8 @@ function SearchByDate() {
                                 <Button
                                   style={{ borderRadius: "50%" }}
                                   onClick={() => {
+                                    setComponentId(item.component_id);
+                                    setVendorId(item.vendor_id);
                                     setSelectedVendor(d.vendor_name);
                                     setPurchasedDate(d.purchased_date);
                                     setInvoiceNo(d.invoice_no);
@@ -1176,7 +1200,7 @@ function SearchByDate() {
                                     setPurchasedPrice(item.purchased_price);
                                     setStockEntry(item.stock_entry);
                                     setdelShow(true);
-                                    setdelID(item.id);
+                                    setdelID(item.purchase_id);
                                   }}
                                   className="btn btn-danger p-2"
                                 >
@@ -1202,8 +1226,8 @@ function SearchByDate() {
                     <h6>
                       Supplied To {d.supplied_to} | Purchased Date :{" "}
                       {d.purchased_date} | Updated Date :{" "}
-                      {d.updated_date.split("T")[0]} | Updated Time :{" "}
-                      {d.updated_date.split("T")[1]}
+                      {d.updated_date.split(" ").slice(0,4).join(" ")} | Updated Time :{" "}
+                      {d.updated_date.split(" ").slice(4,).join(" ")}
                     </h6>
                   </div>
                 </div>
@@ -1320,7 +1344,7 @@ function SearchByDate() {
                           <div>
                             <Button
                               onClick={() => {
-                                setpdfId(d.items[0].id);
+                                setpdfId(d.items[0].invoice_no);
                                 setshowpdf(true);
                               }}
                               className="btn btn-success"
@@ -1371,19 +1395,22 @@ function SearchByDate() {
                                 <Button
                                   style={{ borderRadius: "50%" }}
                                   onClick={() => {
+                                    setComponentId(item.component_id);
+                                    setVendorId(item.vendor_id);
                                     setSelectedVendor(d.vendor_name);
                                     setPurchasedDate(d.purchased_date);
-                                    setInvoiceNo(d.invoice_no);
+                                    setInvoiceNo(item.invoice_no);
                                     setSelectedComponentPurchased(
                                       item.component_purchased
                                     );
                                     setQuantityPurchased(
                                       item.quantity_purchased
                                     );
+                                    setSuppliedTo(item.supplied_to)
                                     setPurchasedPrice(item.purchased_price);
                                     setStockEntry(item.stock_entry);
                                     seteditShow(true);
-                                    seteditID(item.id);
+                                    seteditID(item.purchase_id);
                                   }}
                                   className="btn btn-primary p-2"
                                 >
@@ -1399,6 +1426,8 @@ function SearchByDate() {
                                 <Button
                                   style={{ borderRadius: "50%" }}
                                   onClick={() => {
+                                    setComponentId(item.component_id);
+                                    setVendorId(item.vendor_id);
                                     setSelectedVendor(d.vendor_name);
                                     setPurchasedDate(d.purchased_date);
                                     setInvoiceNo(d.invoice_no);
@@ -1411,7 +1440,7 @@ function SearchByDate() {
                                     setPurchasedPrice(item.purchased_price);
                                     setStockEntry(item.stock_entry);
                                     setdelShow(true);
-                                    setdelID(item.id);
+                                    setdelID(item.purchase_id);
                                   }}
                                   className="btn btn-danger p-2"
                                 >
@@ -1436,8 +1465,8 @@ function SearchByDate() {
                   >
                     <h6>
                       Purchased Date : {d.purchased_date} | Updated Date :{" "}
-                      {d.updated_date.split("T")[0]} | Updated Time :{" "}
-                      {d.updated_date.split("T")[1]}
+                      {d.updated_date.split(" ").slice(0,4).join(" ")} | Updated Time :{" "}
+                      {d.updated_date.split(" ").slice(4,).join(" ")}
                     </h6>
                   </div>
                 </div>
