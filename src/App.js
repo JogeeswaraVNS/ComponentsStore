@@ -8,6 +8,7 @@ import SearchByComponent from "./searchbycomponent/SearchByComponent";
 import SearchByInvoice from "./searchbyinvoice/SearchByInvoice";
 import SearchBySuppliedTo from "./searchbysuppliedto/SearchBySuppliedTo";
 import SearchByDate from "./searchbydate/SearchByDate";
+import SearchBySerialNo from "./searchbyserialno/SearchBySerialNo";
 import Signup from "./signup/signup";
 import Login from "./login/login";
 import ProtectedRoute from "./protectedroute/protectedroute";
@@ -35,6 +36,7 @@ function App() {
             { path: "/searchbyinvoice", element: <SearchByInvoice /> },
             { path: "/searchbysuppliedto", element: <SearchBySuppliedTo /> },
             { path: "/searchbydate", element: <SearchByDate /> },
+            { path: "/searchbyserialno", element: <SearchBySerialNo /> },
             { path: "/addcomponents", element: <AddComponents /> }
           ],
         },

@@ -16,6 +16,7 @@ const Signup = () => {
   const [passwordError, setPasswordError] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [confirmPasswordError, setConfirmPasswordError] = useState('');
+  const [userType, setUserType] = useState('user'); // Default value
   const [modalMessage, setModalMessage] = useState('');
   const [showModal, setShowModal] = useState(false);
 
@@ -26,37 +27,24 @@ const Signup = () => {
   const checkEmail = (data) => {
     setEmail(data);
     const emailRegex = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/;
-    if (data === '') {
-      setEmailError('*This field is required');
-    } else if (!emailRegex.test(data)) {
-      setEmailError('*Enter a valid email address');
-    } else {
-      setEmailError('');
-    }
+    if (data === '') setEmailError('*This field is required');
+    else if (!emailRegex.test(data)) setEmailError('*Enter a valid email address');
+    else setEmailError('');
   };
 
   const checkUsername = (data) => {
     setUsername(data);
     const usernameRegex = /^[a-zA-Z]{7,}$/;
-    if (data === '') {
-      setUsernameError('*This field is required');
-    } else if (!usernameRegex.test(data)) {
-      setUsernameError('*Must be at least 7 letters with no digits or special characters');
-    } else {
-      setUsernameError('');
-    }
+    if (data === '') setUsernameError('*This field is required');
+    else if (!usernameRegex.test(data)) setUsernameError('*Must be at least 7 letters with no digits or special characters');
+    else setUsernameError('');
   };
 
   const checkPassword = (data) => {
     setPassword(data);
-    if (data === '') {
-      setPasswordError('*This field is required');
-    } else {
-      let charCount = 0,
-        hasUppercase = false,
-        hasSpecialChar = false,
-        hasDigit = false;
-
+    if (data === '') setPasswordError('*This field is required');
+    else {
+      let charCount = 0, hasUppercase = false, hasSpecialChar = false, hasDigit = false;
       for (let char of data) {
         charCount++;
         if (char >= 'A' && char <= 'Z') hasUppercase = true;
@@ -74,13 +62,9 @@ const Signup = () => {
 
   const checkConfirmPassword = (data) => {
     setConfirmPassword(data);
-    if (data === '') {
-      setConfirmPasswordError('*This field is required');
-    } else if (data !== password) {
-      setConfirmPasswordError('*Passwords do not match');
-    } else {
-      setConfirmPasswordError('');
-    }
+    if (data === '') setConfirmPasswordError('*This field is required');
+    else if (data !== password) setConfirmPasswordError('*Passwords do not match');
+    else setConfirmPasswordError('');
   };
 
   const handleClose = () => {
@@ -100,8 +84,10 @@ const Signup = () => {
     let isValid = !emailError && email !== '' && !usernameError && username !== '' && !passwordError && password !== '' && !confirmPasswordError && confirmPassword === password;
 
     if (isValid) {
+      const finalData = { ...formData, userType }; // Include userType in submission
+
       axios
-        .post('http://127.0.0.1:5000/signup', formData)
+        .post('http://127.0.0.1:5000/signup', finalData)
         .then((response) => {
           if (response.status === 201) {
             setModalMessage('✅ Account created successfully!');
@@ -120,36 +106,49 @@ const Signup = () => {
   };
 
   return (
-    <div className="container vh-100 d-flex align-items-center justify-content-center">
+    <div style={{ height: '90vh' }} className="container d-flex align-items-center justify-content-center">
       <div className="col-md-6 col-lg-5 col-sm-8">
         <form className="border p-4 rounded shadow bg-white" autoComplete="off" onSubmit={handleSubmit(submitForm)}>
           <h3 className="text-center mb-3">Please Register Here:</h3>
 
+          {/* Email Field */}
           <div className="mb-3">
             <label htmlFor="email" className="form-label"><b>Email</b></label>
             <input type="email" className="form-control" id="email" required {...register('email')} value={email} onChange={(e) => checkEmail(e.target.value)} style={emailError ? failure : email.length > 0 ? success : normal} />
             {emailError && <span className="text-danger">{emailError}</span>}
           </div>
 
+          {/* Username Field */}
           <div className="mb-3">
             <label htmlFor="username" className="form-label"><b>Username</b></label>
             <input type="text" className="form-control" id="username" required {...register('username')} value={username} onChange={(e) => checkUsername(e.target.value)} style={usernameError ? failure : username.length >= 7 ? success : normal} />
             {usernameError && <span className="text-danger">{usernameError}</span>}
           </div>
 
+          {/* Password Field */}
           <div className="mb-3">
             <label htmlFor="password" className="form-label"><b>Password</b></label>
             <input type="password" className="form-control" id="password" required {...register('password')} value={password} onChange={(e) => checkPassword(e.target.value)} style={passwordError ? failure : password.length >= 8 ? success : normal} />
             {passwordError && <span className="text-danger">{passwordError}</span>}
           </div>
 
+          {/* Confirm Password Field */}
           <div className="mb-3">
             <label htmlFor="confirmPassword" className="form-label"><b>Confirm Password</b></label>
             <input type="password" className="form-control" id="confirmPassword" required {...register('confirmPassword')} value={confirmPassword} onChange={(e) => checkConfirmPassword(e.target.value)} style={confirmPasswordError ? failure : confirmPassword && confirmPassword === password ? success : normal} />
             {confirmPasswordError && <span className="text-danger">{confirmPasswordError}</span>}
           </div>
-              
-          <button type="submit" className="btn btn-primary w-100">Create Account</button>
+
+          {/* User Type Dropdown */}
+          <div className="mb-3">
+            <label htmlFor="userType" className="form-label"><b>User Type</b></label>
+            <select className="form-control" id="userType" {...register('userType')} value={userType} onChange={(e) => setUserType(e.target.value)}>
+              <option value="user">User</option>
+              <option value="superuser">Superuser</option>
+            </select>
+          </div>
+
+          <button type="submit" className="btn btn-primary w-100 mt-2">Create Account</button>
         </form>
       </div>
 

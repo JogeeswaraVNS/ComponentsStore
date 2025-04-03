@@ -13,14 +13,13 @@ import { logincontext } from "../contextapi/contextapi";
 import axios from "axios";
 
 function AddComponents() {
-
   const [loginUser, setLoginUser] = useContext(logincontext);
 
   const [components, setComponents] = useState([]);
 
   const [file, setFile] = useState(null);
 
-  const [fileSizeError,setFileSizeError]=useState(false)
+  const [fileSizeError, setFileSizeError] = useState(false);
 
   const handleFileChange = (event) => {
     setFile(event.target.files[0]);
@@ -63,6 +62,34 @@ function AddComponents() {
 
   const [isOtherSelected, setIsOtherSelected] = useState(false);
 
+  const [serial_number, setserial_number] = useState(null);
+
+  const [warranty, setwarranty] = useState(null);
+
+  const [customWarranty, setCustomWarranty] = useState("");
+
+  const [showCustomInput, setShowCustomInput] = useState(false);
+
+  const warrantyOptions = [
+    { value: "3 months", label: "3 Months" },
+    { value: "6 months", label: "6 Months" },
+    { value: "1 year", label: "1 Year" },
+    { value: "3 years", label: "3 Years" },
+    { value: "5 years", label: "5 Years" },
+    { value: "other", label: "Other" }, // Custom input trigger
+  ];
+
+  const handleWarrantyChange = (option) => {
+    if (option.value === "other") {
+      setwarranty(""); // Reset warranty when "Other" is selected
+      setShowCustomInput(true);
+    } else {
+      setwarranty(option.value); // Set selected value
+      // console.log(option)
+      setShowCustomInput(false);
+      setCustomWarranty(""); // Reset custom input
+    }
+  };
 
   useEffect(() => {
     axios
@@ -94,56 +121,62 @@ function AddComponents() {
   };
 
   const clearall = () => {
-    setSelectedComponentPurchased("");
+    setSelectedComponentPurchased(null);
     setQuantityPurchased(0);
-    setPurchasedPrice("");
-    setStockEntry("");
+    setPurchasedPrice(null);
+    setStockEntry(null);
+    setserial_number(null);
+    setwarranty(null);
   };
-
 
   const handlesubmit = () => {
-  
     const maxSize = 5 * 1024 * 1024; // 5MB in bytes
-  
+
     if (file.size > maxSize) {
-      console.log("yes")
+      console.log("yes");
       setFileSizeError(true);
-      setselectedsubmit(true)
+      setselectedsubmit(true);
       return;
-    }
-    else
-    {
-    const formData = new FormData();
-    setFileSizeError(false)
-   
-    formData.append("file", file);
-    formData.append("vendor", selectedVendor);
-    formData.append("PurchasedDate", PurchasedDate);
-    formData.append("InvoiceNo", InvoiceNo);
-    formData.append("components", JSON.stringify(components));
-    formData.append(
-      "suppliedTo",
-      selectedOption?.value === "Others" ? customOption : selectedOption?.value
-    );
-    formData.append("user_id", loginUser.user_id);
-  
-    axios
-      .post("http://localhost:5000/purchasedcomponents/postall", formData, {
-        headers: { "Content-Type": "multipart/form-data" },
-      })
-      .then((r) =>{setstatus(201)}) // Use `r.status` instead of `r.data`
-      .catch((err) =>{setstatus(400 || 500)}); // Handle `undefined` response
-  
-    setselectedsubmit(true);
+    } else {
+      const formData = new FormData();
+      setFileSizeError(false);
+
+      formData.append("file", file);
+      formData.append("vendor", selectedVendor);
+      formData.append("PurchasedDate", PurchasedDate);
+      formData.append("InvoiceNo", InvoiceNo);
+      formData.append("components", JSON.stringify(components));
+      formData.append(
+        "suppliedTo",
+        selectedOption?.value === "Others"
+          ? customOption
+          : selectedOption?.value
+      );
+      formData.append("user_id", loginUser.user_id);
+
+      axios
+        .post("http://localhost:5000/purchasedcomponents/postall", formData, {
+          headers: { "Content-Type": "multipart/form-data" },
+        })
+        .then((r) => {
+          setstatus(201);
+        }) // Use `r.status` instead of `r.data`
+        .catch((err) => {
+          setstatus(400 || 500);
+        }); // Handle `undefined` response
+
+      setselectedsubmit(true);
     }
   };
-  
+
   const handleadd = () => {
     if (
       selectedComponentPurchased !== null &&
       QuantityPurchased !== 0 &&
       PurchasedDate !== null &&
-      StockEntry !== null
+      StockEntry !== null &&
+      serial_number !== null &&
+      warranty !== null
     ) {
       setComponents([
         ...components,
@@ -152,11 +185,14 @@ function AddComponents() {
           QuantityPurchased: QuantityPurchased,
           PurchasedPrice: PurchasedPrice,
           StockEntry: StockEntry,
+          serial_number: serial_number,
+          warranty: warranty,
         },
       ]);
       clearall();
     } else {
-      setstatus(400);
+      alert("Please Enter all values");
+      setaddcomponent(true)
     }
   };
 
@@ -170,6 +206,8 @@ function AddComponents() {
     components[editID].QuantityPurchased = QuantityPurchased;
     components[editID].PurchasedPrice = PurchasedPrice;
     components[editID].StockEntry = StockEntry;
+    components[editID].serial_number = serial_number;
+    components[editID].warranty = warranty;
   };
 
   return (
@@ -255,7 +293,6 @@ function AddComponents() {
               </h3>
             </div>
           )}
-
 
           <div style={{ display: "flex", justifyContent: "center" }}>
             <button
@@ -376,7 +413,25 @@ function AddComponents() {
                   </div>
                 </div>
 
-                <div class="row mt-4">
+                <div className="row mt-4">
+                  <div className="col-auto mt-1">
+                    <label for="Serial No." class="form-label">
+                      <h5>Serial No.</h5>
+                    </label>
+                  </div>
+                  <div className="col">
+                    <input
+                      required
+                      type="text"
+                      style={{ border: "1px solid black" }}
+                      class="form-control"
+                      value={serial_number}
+                      onChange={(event) => {
+                        setserial_number(event.target.value);
+                      }}
+                    ></input>
+                  </div>
+
                   <div className="col-auto mt-1">
                     <label for="StockEntry">
                       <h5>Stock Entry</h5>
@@ -394,6 +449,54 @@ function AddComponents() {
                       class="form-control"
                     ></input>
                   </div>
+                </div>
+                <div className="row mt-4">
+                  <div className="col-auto mt-1">
+                    <label htmlFor="warranty" className="form-label">
+                      <h5 className="mb-3 mt-1">Warranty</h5>
+                    </label>
+                  </div>
+                  <div className="col">
+                    <Select
+                      value={warrantyOptions.find(
+                        (opt) => opt.value === warranty
+                      )}
+                      onChange={handleWarrantyChange}
+                      options={warrantyOptions}
+                      isSearchable={true}
+                      placeholder="-- Select Warranty --"
+                    />
+                  </div>
+
+                  {/* Show input field when "Other" is selected */}
+                  {showCustomInput && (
+                    <div className="col-auto">
+                      <div className="row">
+                        <div className="col-auto">
+                          <label
+                            htmlFor="custom-warranty"
+                            className="form-label"
+                          >
+                            <h5 className="mt-2">Specify Other</h5>
+                          </label>
+                        </div>
+                        <div className="col-auto">
+                          <input
+                            type="text"
+                            id="custom-warranty"
+                            className="form-control"
+                            style={{ border: "1px solid black" }}
+                            value={customWarranty}
+                            onChange={(e) => {
+                              setCustomWarranty(e.target.value);
+                              setwarranty(e.target.value); // Store "Other" input as warranty
+                            }}
+                            required
+                          />
+                        </div>
+                      </div>
+                    </div>
+                  )}
                 </div>
               </div>
               <button
@@ -511,7 +614,25 @@ function AddComponents() {
                   </div>
                 </div>
 
-                <div class="row mt-4">
+                <div className="row mt-4">
+                  <div className="col-auto mt-1">
+                    <label for="Serial No." class="form-label">
+                      <h5>Serial No.</h5>
+                    </label>
+                  </div>
+                  <div className="col">
+                    <input
+                      required
+                      type="text"
+                      style={{ border: "1px solid black" }}
+                      class="form-control"
+                      value={serial_number}
+                      onChange={(event) => {
+                        setserial_number(event.target.value);
+                      }}
+                    ></input>
+                  </div>
+
                   <div className="col-auto mt-1">
                     <label for="StockEntry">
                       <h5>Stock Entry</h5>
@@ -529,6 +650,54 @@ function AddComponents() {
                       class="form-control"
                     ></input>
                   </div>
+                </div>
+                <div className="row mt-4">
+                  <div className="col-auto mt-1">
+                    <label htmlFor="warranty" className="form-label">
+                      <h5 className="mb-3 mt-1">Warranty</h5>
+                    </label>
+                  </div>
+                  <div className="col">
+                    <Select
+                      value={warrantyOptions.find(
+                        (opt) => opt.value === warranty
+                      )}
+                      onChange={handleWarrantyChange}
+                      options={warrantyOptions}
+                      isSearchable={true}
+                      placeholder="-- Select Warranty --"
+                    />
+                  </div>
+
+                  {/* Show input field when "Other" is selected */}
+                  {showCustomInput && (
+                    <div className="col-auto">
+                      <div className="row">
+                        <div className="col-auto">
+                          <label
+                            htmlFor="custom-warranty"
+                            className="form-label"
+                          >
+                            <h5 className="mt-2">Specify Other</h5>
+                          </label>
+                        </div>
+                        <div className="col-auto">
+                          <input
+                            type="text"
+                            id="custom-warranty"
+                            className="form-control"
+                            style={{ border: "1px solid black" }}
+                            value={customWarranty}
+                            onChange={(e) => {
+                              setCustomWarranty(e.target.value);
+                              setwarranty(e.target.value); // Store "Other" input as warranty
+                            }}
+                            required
+                          />
+                        </div>
+                      </div>
+                    </div>
+                  )}
                 </div>
               </div>
             </form>
@@ -604,6 +773,8 @@ function AddComponents() {
                 Quantity : {QuantityPurchased} | Purchased Price :{" "}
                 {PurchasedPrice}rs
               </h5>
+              <h6>Serial No. : {serial_number}</h6>
+              <h6>Warranty : {warranty}</h6>
             </div>
           </div>
         </ModalBody>
@@ -772,6 +943,7 @@ function AddComponents() {
       {components.length === 0 ? null : (
         <div className="container">
           <div style={{ overflowY: "scroll", height: "18rem" }} className="row">
+            {console.log(components)}
             {components.map((d, idx) => (
               <div className="col-3 mt-4 px-3 pb-2">
                 <div className="card">
@@ -790,6 +962,8 @@ function AddComponents() {
                     <h6>Quantity : {d.QuantityPurchased}</h6>
                     <h6>Purchased Price : {d.PurchasedPrice}rs</h6>
                     <h6>Stock Entry : {d.StockEntry}</h6>
+                    <h6>Serial No. : {d.serial_number}</h6>
+                    <h6>Warranty : {d.warranty}</h6>
                     <div
                       className="py-2"
                       style={{
@@ -809,6 +983,8 @@ function AddComponents() {
                             );
                             setPurchasedPrice(components[idx].PurchasedPrice);
                             setStockEntry(components[idx].StockEntry);
+                            setserial_number(components[idx].serial_number);
+                            setwarranty(components[idx].warranty);
                             seteditShow(true);
                             seteditID(idx);
                           }}
@@ -832,6 +1008,8 @@ function AddComponents() {
                             );
                             setPurchasedPrice(components[idx].PurchasedPrice);
                             setStockEntry(components[idx].StockEntry);
+                            setserial_number(components[idx].serial_number);
+                            setwarranty(components[idx].warranty);
                             setdelShow(true);
                             setdelID(idx);
                           }}

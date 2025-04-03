@@ -32,6 +32,7 @@ function ProjectNavbar() {
             <Dropdown.Menu>
               <Dropdown.Item href="/searchbyvendor">Vendor</Dropdown.Item>
               <Dropdown.Item href="/searchbycomponent">Component</Dropdown.Item>
+              <Dropdown.Item href="/searchbyserialno">Serial No.</Dropdown.Item>
               <Dropdown.Item href="/searchbyinvoice">Invoice</Dropdown.Item>
               <Dropdown.Item href="/searchbysuppliedto">Supplied To</Dropdown.Item>
               <Dropdown.Item href="/searchbydate">Date</Dropdown.Item>

@@ -1,5 +1,5 @@
 import axios from "axios";
-import React, { useEffect, useState,useContext } from "react";
+import React, { useEffect, useState, useContext } from "react";
 import Button from "react-bootstrap/Button";
 import EditIcon from "@mui/icons-material/Edit";
 import DeleteIcon from "@mui/icons-material/Delete";
@@ -12,11 +12,9 @@ import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
 import VisibilityIcon from "@mui/icons-material/Visibility";
 import DownloadIcon from "@mui/icons-material/Download";
 import { logincontext } from "../contextapi/contextapi";
-
-
+import Select from "react-select";
 
 function SearchByComponent() {
-
   const [loginUser, setLoginUser] = useContext(logincontext);
 
   const [pdfUrl, setPdfUrl] = useState("");
@@ -30,7 +28,9 @@ function SearchByComponent() {
   const [TotalComponents, setTotalComponents] = useState(0);
 
   const [Data, setData] = useState([]);
+
   const [ComponentData, setComponentData] = useState([]);
+
   let [sort, setsort] = useState(false);
 
   let [show, setshow] = useState(false);
@@ -68,23 +68,59 @@ function SearchByComponent() {
 
   const [delstatus, setdelstatus] = useState(null);
 
-  const [suppliedTo,setSuppliedTo]=useState(null)
+  const [suppliedTo, setSuppliedTo] = useState(null);
 
-  const [vendorId,setVendorId]=useState(null)
-  
-  const [componentId,setComponentId]=useState(null)
+  const [vendorId, setVendorId] = useState(null);
 
+  const [componentId, setComponentId] = useState(null);
 
+  const [serial_number, setserial_number] = useState(null);
 
-    useEffect(() => {
+  const [warranty, setwarranty] = useState(null);
+
+  const [customWarranty, setCustomWarranty] = useState("");
+
+  const [showCustomInput, setShowCustomInput] = useState(false);
+
+  const [user, setuser] = useState(null);
+
+  const warrantyOptions = [
+    { value: "3 months", label: "3 Months" },
+    { value: "6 months", label: "6 Months" },
+    { value: "1 year", label: "1 Year" },
+    { value: "3 years", label: "3 Years" },
+    { value: "5 years", label: "5 Years" },
+    { value: "other", label: "Other" }, // Custom input trigger
+  ];
+
+  const handleWarrantyChange = (option) => {
+    if (option.value === "other") {
+      setwarranty(""); // Reset warranty when "Other" is selected
+      setShowCustomInput(true);
+    } else {
+      setwarranty(option.value); // Set selected value
+      // console.log(option)
+      setShowCustomInput(false);
+      setCustomWarranty(""); // Reset custom input
+    }
+  };
+
+  useEffect(() => {
+    axios
+      .get(`http://127.0.0.1:5000/getuser/${loginUser.user_id}`)
+      .then((r) => setuser(r.data))
+      .catch((err) => console.log(err.response.status));
+  }, []);
+
+  useEffect(() => {
     const fetchPdf = async () => {
       if (!pdfId || !loginUser?.user_id) return; // Ensure both values are available
-  
+
       try {
         const response = await axios.get(`http://localhost:5000/view`, {
-          params: { 
-            invoice_no: pdfId, 
-            user_id: loginUser.user_id 
+          params: {
+            invoice_no: pdfId,
+            user_id: loginUser.user_id,
           },
           responseType: "blob",
         });
@@ -96,7 +132,7 @@ function SearchByComponent() {
         console.error("Error fetching the PDF", error);
       }
     };
-  
+
     fetchPdf();
   }, [pdfId, loginUser?.user_id]); // Runs when pdfId or user_id changes
 
@@ -108,26 +144,30 @@ function SearchByComponent() {
       PurchasedPrice !== null &&
       PurchasedDate !== null &&
       StockEntry !== null &&
-      InvoiceNo !== null
+      InvoiceNo !== null &&
+      serial_number !== null &&
+      warranty !== null
     ) {
       axios
         .put("http://127.0.0.1:5000/purchasedcomponents/put", {
           id: editID,
-          user_id:loginUser.user_id,
+          user_id: loginUser.user_id,
           selectedVendor: selectedVendor,
           selectedComponentPurchased: selectedComponentPurchased,
           QuantityPurchased: QuantityPurchased,
           PurchasedPrice: PurchasedPrice,
           PurchasedDate: PurchasedDate,
           StockEntry: StockEntry,
+          serial_number: serial_number,
+          warranty: warranty,
           InvoiceNo: InvoiceNo,
-          suppliedTo:suppliedTo,
-          componentId:componentId,
-          vendorId:vendorId
+          suppliedTo: suppliedTo,
+          componentId: componentId,
+          vendorId: vendorId,
         })
         .then((r) => seteditstatus(201))
         .catch((err) => {
-          seteditstatus(400)
+          seteditstatus(400);
           window.location.reload();
         });
     } else {
@@ -137,9 +177,11 @@ function SearchByComponent() {
 
   function DeleteSelectedComponent() {
     axios
-      .delete(`http://127.0.0.1:5000/purchasedcomponents/delete/${delID}/${componentId}/${InvoiceNo}/${vendorId}/`)
+      .delete(
+        `http://127.0.0.1:5000/purchasedcomponents/delete/${delID}/${componentId}/${InvoiceNo}/${vendorId}/`
+      )
       .then((r) => {
-        console.log(r.data.status)
+        console.log(r.data.status);
         setdelstatus(201);
       })
       .catch((err) => setdelstatus(400));
@@ -151,7 +193,7 @@ function SearchByComponent() {
       axios
         .put(`http://127.0.0.1:5000/purchasedcomponents/get/componentnames`, {
           ComponentName: ComponentName,
-          user_id:loginUser.user_id
+          user_id: loginUser.user_id,
         })
         .then((r) => setComponentData(r.data))
         .catch((err) => console.log(err.response.status));
@@ -160,10 +202,8 @@ function SearchByComponent() {
 
   useEffect(() => {
     axios
-      .get(`http://127.0.0.1:5000/purchasedcomponents/get/componentnames`,{
-
-        params:{user_id:loginUser.user_id}
-
+      .get(`http://127.0.0.1:5000/purchasedcomponents/get/componentnames`, {
+        params: { user_id: loginUser.user_id },
       })
       .then((r) => setComponentData(r.data))
       .catch((err) => console.log(err.response.status));
@@ -175,11 +215,10 @@ function SearchByComponent() {
         `http://127.0.0.1:5000/purchasedcomponents/get/allcomponents/${sort}/`,
         {
           selectedComponentPurchased: selectedComponentPurchased,
-          user_id:loginUser.user_id
+          user_id: loginUser.user_id,
         }
       )
       .then((r) => {
-
         const totalSum = r.data.reduce((accumulator, current) => {
           return accumulator + parseInt(current.purchased_quantity, 10);
         }, 0);
@@ -196,7 +235,7 @@ function SearchByComponent() {
         `http://127.0.0.1:5000/component/generate_pdf/${sort}/`,
         {
           selectedComponentPurchased: selectedComponentPurchased,
-          user_id:loginUser.user_id
+          user_id: loginUser.user_id,
         },
         { responseType: "blob" }
       )
@@ -322,6 +361,7 @@ function SearchByComponent() {
           </div>
         </ModalBody>
       </Modal>
+
       <Modal
         show={delsubmitstatus}
         backdrop="static"
@@ -515,24 +555,25 @@ function SearchByComponent() {
                   </div>
                 </div>
 
-                <div class="row mt-4">
+                <div className="row mt-4">
                   <div className="col-auto mt-1">
-                    <label for="PurchasedDate">
-                      <h5>Purchased Date</h5>
+                    <label for="Serial No." class="form-label">
+                      <h5>Serial No.</h5>
                     </label>
                   </div>
                   <div className="col">
                     <input
                       required
+                      type="text"
                       style={{ border: "1px solid black" }}
-                      value={PurchasedDate}
-                      onChange={(event) => {
-                        setPurchasedDate(event.target.value);
-                      }}
-                      type="date"
                       class="form-control"
+                      value={serial_number}
+                      onChange={(event) => {
+                        setserial_number(event.target.value);
+                      }}
                     ></input>
                   </div>
+
                   <div className="col-auto mt-1">
                     <label for="StockEntry">
                       <h5>Stock Entry</h5>
@@ -550,6 +591,54 @@ function SearchByComponent() {
                       class="form-control"
                     ></input>
                   </div>
+                </div>
+                <div className="row mt-4">
+                  <div className="col-auto mt-1">
+                    <label htmlFor="warranty" className="form-label">
+                      <h5 className="mb-3 mt-1">Warranty</h5>
+                    </label>
+                  </div>
+                  <div className="col">
+                    <Select
+                      value={warrantyOptions.find(
+                        (opt) => opt.value === warranty
+                      )}
+                      onChange={handleWarrantyChange}
+                      options={warrantyOptions}
+                      isSearchable={true}
+                      placeholder="-- Select Warranty --"
+                    />
+                  </div>
+
+                  {/* Show input field when "Other" is selected */}
+                  {showCustomInput && (
+                    <div className="col-auto">
+                      <div className="row">
+                        <div className="col-auto">
+                          <label
+                            htmlFor="custom-warranty"
+                            className="form-label"
+                          >
+                            <h5 className="mt-2">Specify Other</h5>
+                          </label>
+                        </div>
+                        <div className="col-auto">
+                          <input
+                            type="text"
+                            id="custom-warranty"
+                            className="form-control"
+                            style={{ border: "1px solid black" }}
+                            value={customWarranty}
+                            onChange={(e) => {
+                              setCustomWarranty(e.target.value);
+                              setwarranty(e.target.value); // Store "Other" input as warranty
+                            }}
+                            required
+                          />
+                        </div>
+                      </div>
+                    </div>
+                  )}
                 </div>
                 <div class="row mt-4">
                   <div className="col-auto mt-2">
@@ -642,6 +731,9 @@ function SearchByComponent() {
               </h5>
               <h5>
                 Stock Entry : {StockEntry} | Invoice No. : {InvoiceNo}
+              </h5>
+              <h5>
+                Serial No. : {serial_number} | Warranty : {warranty}
               </h5>
             </div>
           </div>
@@ -740,9 +832,9 @@ function SearchByComponent() {
                   <div>
                     <h5>{d}</h5>
                   </div>
-                  <div style={{display:'flex'}}>
+                  <div style={{ display: "flex" }}>
                     {show && selectedComponentIdx === idx && (
-                      <div style={{display:'flex'}}>
+                      <div style={{ display: "flex" }}>
                         <div
                           className="btn btn-success me-2"
                           onClick={handleGeneratePdf}
@@ -759,16 +851,16 @@ function SearchByComponent() {
                       </div>
                     )}
                     <div>
-                    <ExpandMoreIcon
-                      className="mt-1"
-                      style={{
-                        fontSize: "2rem",
-                        transform:
-                          selectedComponentIdx === idx && show
-                            ? "rotate(180deg)"
-                            : "",
-                      }}
-                    />
+                      <ExpandMoreIcon
+                        className="mt-1"
+                        style={{
+                          fontSize: "2rem",
+                          transform:
+                            selectedComponentIdx === idx && show
+                              ? "rotate(180deg)"
+                              : "",
+                        }}
+                      />
                     </div>
                   </div>
                 </div>
@@ -786,7 +878,7 @@ function SearchByComponent() {
                         <div style={{ textAlign: "center" }}>
                           <Button
                             onClick={() => {
-                              console.log("data is ",d)
+                              console.log("data is ", d);
                               setpdfId(d.invoice_no);
                               setshowpdf(true);
                             }}
@@ -818,6 +910,8 @@ function SearchByComponent() {
                         <h6>Quantity : {d.purchased_quantity}</h6>
                         <h6>Purchased Price : {d.purchased_price}rs</h6>
                         <h6>Stock Entry : {d.stock_entry}</h6>
+                        <h6>Serial No. : {d.serial_number}</h6>
+                        <h6>Warranty : {d.warranty}</h6>
                         <h6>Purchased Date : {d.purchased_date}</h6>
                         <h6>Updated Date : {d.updated_date.split(" ")[0]}</h6>
                         <h6>Updated Time : {d.updated_date.split(" ")[1]}</h6>
@@ -830,13 +924,14 @@ function SearchByComponent() {
                       >
                         <h6>Supplied to {d.supplied_to}</h6>
                       </div>
-                      <div
+                      {user &&<div
                         className="py-3"
                         style={{
                           display: "flex",
                           justifyContent: "space-evenly",
                         }}
                       >
+
                         <div>
                           <Button
                             style={{ borderRadius: "50%" }}
@@ -854,7 +949,9 @@ function SearchByComponent() {
                               seteditID(d.purchases_id);
                               setComponentId(d.component_id);
                               setVendorId(d.vendor_id);
-                              setSuppliedTo(d.supplied_to)
+                              setSuppliedTo(d.supplied_to);
+                              setwarranty(d.warranty);
+                              setserial_number(d.serial_number);
                             }}
                             className="btn btn-primary p-2"
                           >
@@ -880,7 +977,9 @@ function SearchByComponent() {
                               setdelShow(true);
                               setdelID(d.purchases_id);
                               setComponentId(d.component_id);
-                              setVendorId(d.vendor_id)
+                              setVendorId(d.vendor_id);
+                              setserial_number(d.serial_number);
+                              setwarranty(d.warranty);
                             }}
                             className="btn btn-danger p-2"
                           >
@@ -891,7 +990,9 @@ function SearchByComponent() {
                             {/* <h6 className="d-inline ms-2">Delete</h6> */}
                           </Button>
                         </div>
-                      </div>
+
+                        </div>}
+
                     </div>
                   </div>
                 ))}

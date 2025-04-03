@@ -15,8 +15,8 @@ import io
 import re
 import traceback
 from collections import defaultdict
-from datetime import timedelta
-from pprint import pprint  
+from sqlalchemy import and_
+
 
 
 
@@ -43,21 +43,24 @@ def preprocess(string):
 class RegisteredUsers(db.Model):
     __tablename__ = 'RegisteredUsers'
 
-    user_id = db.Column(db.Integer, primary_key=True, autoincrement=True)  # Auto-increment ID
+    user_id = db.Column(db.Integer, primary_key=True, autoincrement=True)
     email = db.Column(db.String(100), unique=True, nullable=False)
-    username = db.Column(db.String(50), unique=True, nullable=False)  
+    username = db.Column(db.String(50), unique=True, nullable=False)
     password = db.Column(db.String(200), nullable=False)  # Store hashed password
+    user_type = db.Column(db.String(20), nullable=False, default="user")  # Can be "user" or "superuser"
 
-    def __init__(self, email, username, password):
+
+    def __init__(self, email, username, password,user_type):
         self.email = email
         self.username = username
         self.password = password  # This should be a hashed password
+        self.user_type = user_type
 
 
 # Schema for serialization
 class RegisteredUsersSchema(ma.Schema):
     class Meta:
-        fields = ('user_id', 'email', 'username', 'password')  # Include 'id' field
+        fields = ('user_id', 'email', 'username', 'password','user_type')  # Include 'id' field
 
 
 registered_user_schema = RegisteredUsersSchema()
@@ -113,6 +116,8 @@ class Purchases(db.Model):
     component_id = db.Column(db.Integer, db.ForeignKey('components.component_id'))
     invoice_no = db.Column(db.String(100), db.ForeignKey('invoices.invoice_no'))
     stock_entry = db.Column(db.String(50))
+    serial_number = db.Column(db.String(50))
+    warranty = db.Column(db.String(50))
     purchased_quantity = db.Column(db.Integer)
     purchased_price = db.Column(db.Float)
     purchased_date = db.Column(db.Date)
@@ -120,11 +125,13 @@ class Purchases(db.Model):
     updated_date = db.Column(db.DateTime, default=datetime.datetime.now)
     user_id = db.Column(db.Integer, db.ForeignKey('RegisteredUsers.user_id'), nullable=False)  # FK to RegisteredUsers.user_id
 
-    def __init__(self, vendor_id, component_id, invoice_no, stock_entry, purchased_quantity, 
+    def __init__(self, vendor_id, component_id, invoice_no, stock_entry,serial_number,warranty, purchased_quantity, 
                  purchased_price, purchased_date, supplied_to, user_id):
         self.component_id = component_id
         self.invoice_no = invoice_no
         self.stock_entry = stock_entry
+        self.serial_number = serial_number
+        self.warranty = warranty
         self.purchased_quantity = purchased_quantity
         self.purchased_price = purchased_price
         self.purchased_date = purchased_date
@@ -157,7 +164,7 @@ def process_component(component_name, vendor_id, user_id):
     component_name = preprocess(component_name)
 
     # Check if component already exists for this vendor
-    component_exists = Components.query.filter_by(component_name=component_name, vendor_id=vendor_id, user_id=user_id).first()
+    component_exists = Components.query.filter_by(component_name=component_name, vendor_id=vendor_id).first()
 
     if not component_exists:
         try:
@@ -168,13 +175,13 @@ def process_component(component_name, vendor_id, user_id):
             db.session.rollback()  # Rollback transaction in case of error
             print(f"Error inserting component: {e}")
 
-    component_id = Components.query.filter_by(component_name=component_name, vendor_id=vendor_id, user_id=user_id).first().component_id
+    component_id = Components.query.filter_by(component_name=component_name, vendor_id=vendor_id).first().component_id
     return component_id
 
 
 
 
-def add_to_db(vendor_name,component_name,purchased_quantity,purchased_price,purchased_date,stock_entry,invoice_no,invoice_pdf_name,supplied_to,user_id):
+def add_to_db(vendor_name,component_name,purchased_quantity,purchased_price,purchased_date,stock_entry,serial_number,warranty,invoice_no,invoice_pdf_name,supplied_to,user_id):
     with app.app_context():
         
         vendor_id=process_vendor(vendor_name,user_id)
@@ -188,10 +195,16 @@ def add_to_db(vendor_name,component_name,purchased_quantity,purchased_price,purc
             db.session.add(new_invoice)
             db.session.commit()
           
-        new_purchase = Purchases(vendor_id,component_id,invoice_no,stock_entry,purchased_quantity,purchased_price,purchased_date,supplied_to,user_id)
+        new_purchase = Purchases(vendor_id,component_id,invoice_no,stock_entry,serial_number,warranty,purchased_quantity,purchased_price,purchased_date,supplied_to,user_id)
         db.session.add(new_purchase)
         db.session.commit()
-   
+        
+
+@app.route('/getuser/<user_id>',methods=['GET'])
+def get_user(user_id):
+    user=RegisteredUsers.query.filter_by(user_id=user_id).first().user_type
+    return jsonify(user=='superuser')
+    
 
   ## new route for adding purchased components 
 
@@ -226,7 +239,9 @@ def postall_purchased_components():
                     QuantityPurchased=i['QuantityPurchased']
                     PurchasedPrice=i['PurchasedPrice']
                     StockEntry=i['StockEntry']
-                    add_to_db(vendor,selectedComponentPurchased,QuantityPurchased,PurchasedPrice,PurchasedDate,StockEntry,InvoiceNo,filename,suppliedTo,user_id)
+                    serial_number=i['serial_number']
+                    warranty=i['warranty']
+                    add_to_db(vendor,selectedComponentPurchased,QuantityPurchased,PurchasedPrice,PurchasedDate,StockEntry,serial_number,warranty,InvoiceNo,filename,suppliedTo,user_id)
                 return '201'
             else:
                 return '400'
@@ -244,7 +259,7 @@ def view_pdf():
 
     try:
         # Fetch invoice record based on invoice_no and user_id
-        invoice = Invoices.query.filter_by(invoice_no=invoice_no, user_id=user_id).first()
+        invoice = Invoices.query.filter_by(invoice_no=invoice_no).first()
 
         if not invoice:
             return jsonify({"error": "Invoice not found for the given user"}), 404
@@ -281,6 +296,8 @@ def put_purchased_components():
             PurchasedPrice = request.json.get('PurchasedPrice')
             PurchasedDate = request.json.get('PurchasedDate')  
             StockEntry = request.json.get('StockEntry')
+            serial_number = request.json.get('serial_number')
+            warranty = request.json.get('warranty')
             SuppliedTo = request.json.get('suppliedTo')
             selectedVendor = preprocess(request.json.get('selectedVendor'))  
             selectedComponentPurchased = preprocess(request.json.get('selectedComponentPurchased'))
@@ -299,25 +316,25 @@ def put_purchased_components():
                 return jsonify({"error": "Invalid date format"}), 400
 
             # Find existing purchase entry
-            purchase = Purchases.query.filter_by(purchases_id=id, user_id=user_id).first()
+            purchase = Purchases.query.filter_by(purchases_id=id).first()
 
             if not purchase:
                 return jsonify({"error": "Purchase record not found"}), 404
 
             # Update Vendor if name has changed
-            vendor = Vendors.query.filter_by(vendor_id=vendor_id, user_id=user_id).first()
+            vendor = Vendors.query.filter_by(vendor_id=vendor_id).first()
             if vendor and vendor.vendor_name != selectedVendor:
                 vendor.vendor_name = selectedVendor
                 db.session.commit()
 
             # Update Component if name has changed
-            component = Components.query.filter_by(component_id=component_id, user_id=user_id,vendor_id=vendor_id).first()
+            component = Components.query.filter_by(component_id=component_id,vendor_id=vendor_id).first()
             if component and component.component_name != selectedComponentPurchased:
                 component.component_name = selectedComponentPurchased
                 db.session.commit()
 
             # Update Invoice if invoice number has changed
-            invoice = Invoices.query.filter_by(invoice_no=invoice_no, user_id=user_id).first()
+            invoice = Invoices.query.filter_by(invoice_no=invoice_no).first()
             if not invoice:
                 invoice = Invoices(invoice_no, f"{invoice_no}.pdf", user_id)
                 db.session.add(invoice)
@@ -331,6 +348,8 @@ def put_purchased_components():
             purchase.purchased_price = PurchasedPrice
             purchase.purchased_date = PurchasedDate
             purchase.stock_entry = StockEntry
+            purchase.serial_number = serial_number
+            purchase.warranty = warranty
             purchase.supplied_to = SuppliedTo
             purchase.updated_date = datetime.datetime.now()
 
@@ -383,6 +402,8 @@ def update_purchase():
             purchase.purchased_date = request.json.get('PurchasedDate')
             purchase.stock_entry = request.json.get('StockEntry')
             purchase.supplied_to = request.json.get('SuppliedTo')  # Added supplied_to field
+            purchase.serial_number = request.json.get('serial_number')
+            purchase.warranty = request.json.get('warranty')
             purchase.updated_date = datetime.datetime.now()
 
             db.session.commit()
@@ -449,90 +470,12 @@ def delete_purchased_components_and_component(delID, componentId, invoiceNo, ven
         db.session.rollback()
         return jsonify({"error": str(e)}), 400
 
-
-@app.route('/purchasedcomponents/getyears',methods=['GET'])
-def get_purchased_components_years():
-    years = db.session.query(
-    extract('year', PurchasedComponents.purchased_date)
-    ).distinct().order_by(extract('year', PurchasedComponents.purchased_date).desc()).all()
-
-    year_list = [year[0] for year in years if year[0] is not None]
-    
-    return jsonify(year_list)  
-
-@app.route('/purchasedcomponents/get/<sort>/<year>/',methods=['GET'])
-def get_purchased_components_filter_year(sort,year):
-    try:
-        with app.app_context():
-            if sort=='true':
-                d=PurchasedComponents.query.order_by(PurchasedComponents.purchased_date.desc()).filter(extract('year', PurchasedComponents.purchased_date) == year).all()
-                data=purchased_components_schema.dump(d)
-            else:
-                d=PurchasedComponents.query.filter(extract('year', PurchasedComponents.purchased_date) == year).order_by(PurchasedComponents.purchased_date).all()
-                data=purchased_components_schema.dump(d)
-                
-            grouped_data = defaultdict(list)
-
-            for item in data:
-                key = (item['vendor_name'], item['purchased_date'],item['updated_date'], item['invoice_no'], item['filename'],item['supplied_to'])
-                grouped_data[key].append(item)
-
-            grouped_result = [
-                {
-                    "vendor_name": key[0],
-                    "purchased_date": key[1],
-                    "updated_date": key[2],
-                    "invoice_no": key[3],
-                    "filename": key[4],
-                    'supplied_to':key[5],
-                    "items": items
-                }
-                for key, items in grouped_data.items()
-            ]
-
-            return jsonify(grouped_result),200
-    except:
-        return '400'
-    
-
-@app.route('/purchasedcomponents/get/<sort>/',methods=['GET'])
-def get_purchased_components(sort):
-    try:
-        with app.app_context():
-            if sort=='true':
-                d=PurchasedComponents.query.order_by(PurchasedComponents.purchased_date.desc()).all()
-                data=purchased_components_schema.dump(d)
-            else:
-                d=PurchasedComponents.query.order_by(PurchasedComponents.purchased_date).all()
-                data=purchased_components_schema.dump(d)
-                
-            grouped_data = defaultdict(list)
-
-            for item in data:
-                key = (item['vendor_name'], item['purchased_date'],item['updated_date'], item['invoice_no'], item['filename'],item['supplied_to'])
-                grouped_data[key].append(item)
-
-            grouped_result = [
-                {
-                    "vendor_name": key[0],
-                    "purchased_date": key[1],
-                    "updated_date": key[2],
-                    "invoice_no": key[3],
-                    "filename": key[4],
-                    'supplied_to':key[5],
-                    "items": items
-                }
-                for key, items in grouped_data.items()
-            ]
-
-            return jsonify(grouped_result),200
-    except:
-        return '400'
     
     
 @app.route('/purchasedcomponents/get/vendornames', methods=['POST'])
 def get_purchased_components_vendor_search():
     with app.app_context():
+        print("JOGI")
         data = request.json
         VendorName = data.get('VendorName', '')
         user_id = data.get('user_id')
@@ -541,10 +484,11 @@ def get_purchased_components_vendor_search():
             return jsonify({"error": "VendorName and user_id are required"}), 400
 
         vendors = (db.session.query(Vendors.vendor_id, Vendors.vendor_name)
-                   .filter(Vendors.vendor_name.ilike(f"%{VendorName}%"), Vendors.user_id == user_id)
+                   .filter(Vendors.vendor_name.ilike(f"%{VendorName}%"))
                    .distinct()
                    .all())
-
+        print(vendors,"OK")
+        
         vendor_list = [{"vendor_id": vendor.vendor_id, "vendor_name": vendor.vendor_name} for vendor in vendors]
         return jsonify(vendor_list)
 
@@ -559,7 +503,6 @@ def get_purchased_components_vendor():
             return jsonify({"error": "user_id is required"}), 400
 
         vendors = (db.session.query(Vendors.vendor_id, Vendors.vendor_name)
-                   .filter(Vendors.user_id == user_id)  # Filter vendors by user_id
                    .distinct()
                    .all())
 
@@ -580,13 +523,13 @@ def get_purchased_components_by_vendor(sort):
         with app.app_context():
 
             # Get vendor_id from vendor_name
-            vendor = Vendors.query.filter_by(vendor_name=vendor_name,user_id=user_id).first()
+            vendor = Vendors.query.filter_by(vendor_name=vendor_name).first()
             if not vendor:
                 print("Error: Vendor not found.")
                 return '400'
 
             # Query purchases for this vendor_id
-            query = Purchases.query.filter_by(vendor_id=vendor.vendor_id,user_id=user_id)
+            query = Purchases.query.filter_by(vendor_id=vendor.vendor_id)
             if sort == 'true':
                 query = query.order_by(Purchases.purchased_date.desc())
             else:
@@ -610,6 +553,8 @@ def get_purchased_components_by_vendor(sort):
                     "invoice_no": p.invoice_no,
                     "filename": p.invoice.invoice_pdf_name,  # Fetch filename from Invoices table
                     "supplied_to": p.supplied_to,
+                    "serial_number": p.serial_number,
+                    "warranty": p.warranty,
                     "stock_entry": p.stock_entry
                 })
 
@@ -657,8 +602,7 @@ def get_purchased_components_component_search():
             return jsonify({"error": "User ID is required"}), 400
 
         components = (db.session.query(Components.component_name)
-                      .filter(Components.component_name.ilike(f"%{ComponentName}%"), 
-                              Components.user_id == user_id)  # Added user_id filter
+                      .filter(Components.component_name.ilike(f"%{ComponentName}%"))  # Added user_id filter
                       .distinct()
                       .all())
 
@@ -677,13 +621,98 @@ def get_purchased_vendors_component():
 
     with app.app_context():
         components = (db.session.query(Components.component_name)
-                      .filter(Components.user_id == user_id)  # Filter by user_id
                       .distinct()
                       .all())
 
         components_list = [component[0] for component in components]
         return jsonify(components_list)
     
+    
+@app.route('/purchasedcomponents/get/serialno', methods=['PUT'])
+def get_purchased_components_serialno_search():
+    with app.app_context():
+        data = request.json
+        SerialNo = data.get('SerialNo')
+        user_id = data.get('user_id')
+
+        if not user_id:
+            return jsonify({"error": "User ID is required"}), 400
+
+        components = (db.session.query(Purchases.serial_number)
+                      .filter(Purchases.serial_number.ilike(f"%{SerialNo}%"))  # Added user_id filter
+                      .distinct()
+                      .all())
+
+        components_list = [component[0] for component in components]
+        return jsonify(components_list)
+
+    
+    
+    
+@app.route('/purchasedcomponents/get/serialno', methods=['GET'])
+def get_purchased_vendors_serialno():
+    user_id = request.args.get('user_id')
+
+    if not user_id:
+        return jsonify({"error": "User ID is required"}), 400
+
+    with app.app_context():
+        serialnos = (db.session.query(Purchases.serial_number)
+                      .distinct()
+                      .all())
+
+        components_list = [component[0] for component in serialnos]
+        return jsonify(components_list)
+    
+
+@app.route('/purchasedcomponents/get/allcomponents/serialno', methods=['PUT'])
+def get_purchased_component_by_serialno():
+    try:
+        # Ensure JSON payload is received
+        data = request.get_json()
+        if not data:
+            return jsonify({"error": "Invalid JSON data"}), 400
+
+        selectedSerialNo = data.get('selectedSerialNo')
+        # print(selectedSerialNo)
+        if not selectedSerialNo:
+            return jsonify({"error": "selectedSerialNo is required"}), 400
+
+        with app.app_context():
+            # Fetch the purchase record based on serial number
+            purchase = Purchases.query.filter_by(serial_number=selectedSerialNo).first()
+            # print(purchase)
+            if not purchase:
+                return jsonify({"message": "No purchase found for this serial number"}), 404
+
+            # Retrieve associated vendor and component details
+            vendor_name = Vendors.query.filter_by(vendor_id=purchase.vendor_id).first()
+            component_name = Components.query.filter_by(component_id=purchase.component_id).first()
+            
+            # Convert the purchase record into a dictionary
+            purchase_data = [{
+                "purchases_id": purchase.purchases_id,
+                "vendor_id": purchase.vendor_id,
+                "vendor_name": vendor_name.vendor_name if vendor_name else "Unknown Vendor",
+                "component_id": purchase.component_id,
+                "purchased_component": component_name.component_name if component_name else "Unknown Component",
+                "invoice_no": purchase.invoice_no,
+                "stock_entry": purchase.stock_entry,
+                "purchased_quantity": purchase.purchased_quantity,
+                "purchased_price": purchase.purchased_price,
+                "purchased_date": purchase.purchased_date.strftime("%Y-%m-%d") if purchase.purchased_date else None,
+                "supplied_to": purchase.supplied_to,
+                "serial_number": purchase.serial_number,
+                "warranty": purchase.warranty,
+                "updated_date": purchase.updated_date.strftime("%Y-%m-%d %H:%M:%S") if purchase.updated_date else None,
+                "user_id": purchase.user_id
+            }]
+            return jsonify(purchase_data), 200
+
+    except Exception as e:
+        print("Error encountered:", str(e))
+        return jsonify({"error": str(e)}), 400
+
 
 @app.route('/purchasedcomponents/get/allcomponents/<sort>/', methods=['PUT'])
 def get_purchased_components_by_component(sort):
@@ -705,7 +734,7 @@ def get_purchased_components_by_component(sort):
             # Get all component IDs for the given component name and user ID
             component_ids = [
                 comp.component_id for comp in 
-                Components.query.filter_by(component_name=selected_component_purchased, user_id=user_id).all()
+                Components.query.filter_by(component_name=selected_component_purchased).all()
             ]
 
             if not component_ids:
@@ -713,7 +742,7 @@ def get_purchased_components_by_component(sort):
 
 
             # Fetch purchases for all matching component IDs
-            query = Purchases.query.filter(Purchases.component_id.in_(component_ids), Purchases.user_id == user_id)
+            query = Purchases.query.filter(Purchases.component_id.in_(component_ids))
 
             # Sorting by purchased_date
             if sort == 'true':
@@ -746,6 +775,8 @@ def get_purchased_components_by_component(sort):
                     "purchased_price": purchase.purchased_price,
                     "purchased_date": purchase.purchased_date.strftime("%Y-%m-%d") if purchase.purchased_date else None,
                     "supplied_to": purchase.supplied_to,
+                    "serial_number": purchase.serial_number,
+                    "warranty": purchase.warranty,
                     "updated_date": purchase.updated_date.strftime("%Y-%m-%d %H:%M:%S") if purchase.updated_date else None,
                     "user_id": purchase.user_id
                 }
@@ -757,8 +788,6 @@ def get_purchased_components_by_component(sort):
     except Exception as e:
         print("Error encountered:", str(e))
         return jsonify({"error": str(e)}), 400
-
-
 
     
     
@@ -784,7 +813,6 @@ def get_purchased_invoice_component():
 
     with app.app_context():
         invoices = (db.session.query(Invoices.invoice_no)
-                    .filter(Invoices.user_id == user_id)  # Filter by user_id
                     .distinct()
                     .all())
 
@@ -812,7 +840,7 @@ def get_purchased_components_by_invoice(sort):
             ).join(Vendors, Purchases.vendor_id == Vendors.vendor_id)
             query = query.join(Components, Purchases.component_id == Components.component_id)
             query = query.join(Invoices, Purchases.invoice_no == Invoices.invoice_no)
-            query = query.filter(Purchases.invoice_no == invoice_no, Purchases.user_id == user_id)
+            query = query.filter(Purchases.invoice_no == invoice_no)
 
             # Sorting
             if sort == 'true':
@@ -841,6 +869,8 @@ def get_purchased_components_by_invoice(sort):
                     "purchased_quantity": purchase.purchased_quantity,
                     "purchased_price": purchase.purchased_price,
                     "stock_entry": purchase.stock_entry,
+                    "serial_number": purchase.serial_number,
+                    "warranty": purchase.warranty,
                     "user_id": purchase.user_id
                 }
                 data.append(item)
@@ -885,7 +915,7 @@ def get_purchased_components_suppliedto_search():
         user_id = int(user_id)  # Convert to integer
 
         with app.app_context():
-            query = db.session.query(Purchases.supplied_to).filter(Purchases.user_id == user_id)
+            query = db.session.query(Purchases.supplied_to)
 
             # Apply `ilike` filter only if SuppliedTo is not empty
             if SuppliedTo:
@@ -914,7 +944,6 @@ def get_purchased_suppliedto_component():
         with app.app_context():
             supplies = (
                 db.session.query(Purchases.supplied_to)
-                .filter(Purchases.user_id == user_id)  # Correct filtering
                 .distinct()
                 .all()
             )
@@ -953,7 +982,7 @@ def get_purchased_components_by_suppliedto(sort):
             ).join(Vendors, Purchases.vendor_id == Vendors.vendor_id)
             query = query.join(Components, Purchases.component_id == Components.component_id)
             query = query.join(Invoices, Purchases.invoice_no == Invoices.invoice_no)
-            query = query.filter(Purchases.supplied_to == supplied_to, Purchases.user_id == user_id)
+            query = query.filter(Purchases.supplied_to == supplied_to)
 
             # Sorting
             if sort == 'true':
@@ -982,6 +1011,8 @@ def get_purchased_components_by_suppliedto(sort):
                     "purchased_quantity": purchase.purchased_quantity,
                     "purchased_price": purchase.purchased_price,
                     "stock_entry": purchase.stock_entry,
+                    "serial_number": purchase.serial_number,
+                    "warranty": purchase.warranty,
                     "user_id": purchase.user_id
                 }
                 data.append(item)
@@ -1036,7 +1067,7 @@ def generate_pdf_vendor(sort):
     try:
         with app.app_context():
             # Fetch vendor_id from Vendors table
-            vendor = Vendors.query.filter_by(vendor_name=vendor_name,user_id=user_id).first()
+            vendor = Vendors.query.filter_by(vendor_name=vendor_name).first()
             if not vendor:
                 return jsonify({"error": "Vendor not found"}), 404  
 
@@ -1044,9 +1075,9 @@ def generate_pdf_vendor(sort):
 
             # Fetch purchases using vendor_id and user_id
             if sort == 'true':
-                purchases = Purchases.query.filter_by(vendor_id=vendor_id, user_id=user_id).order_by(Purchases.purchased_date.desc()).all()
+                purchases = Purchases.query.filter_by(vendor_id=vendor_id).order_by(Purchases.purchased_date.desc()).all()
             else:
-                purchases = Purchases.query.filter_by(vendor_id=vendor_id, user_id=user_id).order_by(Purchases.purchased_date).all()
+                purchases = Purchases.query.filter_by(vendor_id=vendor_id).order_by(Purchases.purchased_date).all()
 
             if not purchases:
                 return jsonify({"error": "No purchases found"}), 404  
@@ -1059,6 +1090,8 @@ def generate_pdf_vendor(sort):
                     "invoice_no": purchase.invoice_no,
                     "supplied_to": purchase.supplied_to,
                     "stock_entry": purchase.stock_entry,
+                    "serial_number": purchase.serial_number,
+                    "warranty": purchase.warranty,
                     "purchased_date": purchase.purchased_date.strftime('%Y-%m-%d'),
                     "updated_date": purchase.updated_date.strftime('%Y-%m-%d %H:%M:%S'),
                 }
@@ -1084,6 +1117,7 @@ def generate_pdf_vendor(sort):
             pdf.cell(200, 10, txt=f"Component Purchased: {i['component_purchased']}", ln=True, align='L')
             pdf.cell(200, 10, txt=f"Purchased Price: {i['purchased_price']} rs, Quantity Purchased: {i['purchased_quantity']}", ln=True, align='L')
             pdf.cell(200, 10, txt=f"Invoice No.: {i['invoice_no']}", ln=True, align='L')
+            pdf.cell(200, 10, txt=f"Serial No.: {i['serial_number']}, Warranty: {i['warranty']}", ln=True, align='L')
             pdf.cell(200, 10, txt=f"Supplied To: {i['supplied_to']}, Stock Entry: {i['stock_entry']}", ln=True, align='L')
             pdf.cell(200, 10, txt=f"Purchased Date: {i['purchased_date']}, Updated date: {i['updated_date']}", ln=True, align='L')
             pdf.line(10, pdf.get_y(), 200, pdf.get_y())
@@ -1108,23 +1142,23 @@ def generate_pdf_vendor(sort):
 def generate_pdf_component(sort):
     selected_component_name = request.json.get('selectedComponentPurchased')
     user_id = request.json.get('user_id')
-    
+
     try:
         with app.app_context():
-            component = Components.query.filter_by(component_name=selected_component_name, user_id=user_id).first()
-            if not component:
+            components = Components.query.filter_by(component_name=selected_component_name).all()
+            if not components:
                 return "Component not found", 404
 
-            component_id = component.component_id
-            
+            component_ids = [component.component_id for component in components]
+
             if sort == 'true':
-                purchases = Purchases.query.filter_by(component_id=component_id,user_id=user_id).order_by(Purcases.purchased_date.desc()).all()
+                purchases = Purchases.query.filter(Purchases.component_id.in_(component_ids)).order_by(Purchases.purchased_date.desc()).all()
             else:
-                purchases = Purchases.query.filter_by(component_id=component_id,user_id=user_id).order_by(Purchases.purchased_date).all()
-            
+                purchases = Purchases.query.filter(Purchases.component_id.in_(component_ids)).order_by(Purchases.purchased_date).all()
+
             vendor_ids = {purchase.vendor_id for purchase in purchases}
             vendors = {vendor.vendor_id: vendor.vendor_name for vendor in Vendors.query.filter(Vendors.vendor_id.in_(vendor_ids)).all()}
-            
+        
         pdf = FPDF()
         pdf.add_page()
         pdf.set_font("Times", style='BI', size=15)
@@ -1134,34 +1168,33 @@ def generate_pdf_component(sort):
         
         c = 0
         for purchase in purchases:
-            if c % 5 == 0 and c != 0:
+            if c % 4 == 0 and c != 0:
                 pdf.set_font("Times", style='BI', size=15)
                 pdf.cell(200, 15, txt=f"{selected_component_name} Component Report", ln=True, align='L')
                 pdf.line(10, pdf.get_y(), 200, pdf.get_y())
                 pdf.set_font("Times", size=12)
-            
+
             vendor_name = vendors.get(purchase.vendor_id, "Unknown Vendor")
             pdf.cell(200, 10, txt=f"Vendor Name : {vendor_name}", ln=True, align='L')
             pdf.cell(200, 10, txt=f"Purchased Price : {purchase.purchased_price} rs, Quantity Purchased : {purchase.purchased_quantity}", ln=True, align='L')
             pdf.cell(200, 10, txt=f"Invoice No. : {purchase.invoice_no}", ln=True, align='L')
+            pdf.cell(200, 10, txt=f"Serial No.: {purchase.serial_number}, Warranty: {purchase.warranty}", ln=True, align='L')
             pdf.cell(200, 10, txt=f"Supplied To : {purchase.supplied_to}, Stock Entry : {purchase.stock_entry}", ln=True, align='L')
             pdf.cell(200, 10, txt=f"Purchased Date : {purchase.purchased_date}, Updated Date : {purchase.updated_date.strftime('%Y-%m-%d %H:%M:%S')}", ln=True, align='L')
             pdf.line(10, pdf.get_y(), 200, pdf.get_y())
             c += 1
-      
+
         # Send the PDF response
         buffer = io.BytesIO()
-        pdf.output(dest='S').encode('latin1')
         buffer.write(pdf.output(dest='S').encode('latin1'))
         buffer.seek(0)
 
-        filename = f"{vendor_name} report.pdf"
+        filename = f"{selected_component_name}_report.pdf"
         return send_file(buffer, as_attachment=True, download_name=filename, mimetype='application/pdf')
 
     except Exception as e:
         print("Error occurred:", e)
         return jsonify({"error": str(e)}), 400
-
 
 
 @app.route('/invoice/generate_pdf/<sort>/', methods=['POST'])
@@ -1172,9 +1205,9 @@ def generate_pdf_invoice(sort):
     try:
         with app.app_context():
             if sort == 'true':
-                purchases = Purchases.query.filter_by(invoice_no=InvoiceNo, user_id=user_id).order_by(Purchases.purchased_date.desc()).all()
+                purchases = Purchases.query.filter_by(invoice_no=InvoiceNo).order_by(Purchases.purchased_date.desc()).all()
             else:
-                purchases = Purchases.query.filter_by(invoice_no=InvoiceNo, user_id=user_id).order_by(Purchases.purchased_date).all()
+                purchases = Purchases.query.filter_by(invoice_no=InvoiceNo).order_by(Purchases.purchased_date).all()
 
             if not purchases:
                 return jsonify({"error": "No purchases found"}), 404  
@@ -1188,6 +1221,8 @@ def generate_pdf_invoice(sort):
                     "invoice_no": purchase.invoice_no,
                     "supplied_to": purchase.supplied_to,
                     "stock_entry": purchase.stock_entry,
+                    "serial_number": purchase.serial_number,
+                    "warranty": purchase.warranty,
                     "purchased_date": purchase.purchased_date.strftime('%Y-%m-%d'),
                     "updated_date": purchase.updated_date.strftime('%Y-%m-%d %H:%M:%S'),
                 }
@@ -1214,6 +1249,7 @@ def generate_pdf_invoice(sort):
             pdf.cell(200, 10, txt=f"Vendor name: {i['vendor_name']}", ln=True, align='L')
             pdf.cell(200, 10, txt=f"Purchased Price: {i['purchased_price']} rs, Quantity Purchased: {i['purchased_quantity']}", ln=True, align='L')
             pdf.cell(200, 10, txt=f"Invoice No.: {i['invoice_no']}", ln=True, align='L')
+            pdf.cell(200, 10, txt=f"Serial No.: {i['serial_number']}, Warranty: {i['warranty']}", ln=True, align='L')
             pdf.cell(200, 10, txt=f"Supplied To: {i['supplied_to']}, Stock Entry: {i['stock_entry']}", ln=True, align='L')
             pdf.cell(200, 10, txt=f"Purchased Date: {i['purchased_date']}, Updated date: {i['updated_date']}", ln=True, align='L')
             pdf.line(10, pdf.get_y(), 200, pdf.get_y())
@@ -1242,9 +1278,9 @@ def generate_pdf_suppliedto(sort):
     try:
         with app.app_context():
             if sort == 'true':
-                purchases = Purchases.query.filter_by(supplied_to=suppliedTo, user_id=user_id).order_by(Purchases.purchased_date.desc()).all()
+                purchases = Purchases.query.filter_by(supplied_to=suppliedTo).order_by(Purchases.purchased_date.desc()).all()
             else:
-                purchases = Purchases.query.filter_by(supplied_to=suppliedTo, user_id=user_id).order_by(Purchases.purchased_date).all()
+                purchases = Purchases.query.filter_by(supplied_to=suppliedTo).order_by(Purchases.purchased_date).all()
 
             if not purchases:
                 return jsonify({"error": "No purchases found"}), 404  
@@ -1258,6 +1294,8 @@ def generate_pdf_suppliedto(sort):
                     "invoice_no": purchase.invoice_no,
                     "supplied_to": purchase.supplied_to,
                     "stock_entry": purchase.stock_entry,
+                    "serial_number": purchase.serial_number,
+                    "warranty": purchase.warranty,
                     "purchased_date": purchase.purchased_date.strftime('%Y-%m-%d'),
                     "updated_date": purchase.updated_date.strftime('%Y-%m-%d %H:%M:%S'),
                 }
@@ -1284,6 +1322,7 @@ def generate_pdf_suppliedto(sort):
             pdf.cell(200, 10, txt=f"Vendor name: {i['vendor_name']}", ln=True, align='L')
             pdf.cell(200, 10, txt=f"Purchased Price: {i['purchased_price']} rs, Quantity Purchased: {i['purchased_quantity']}", ln=True, align='L')
             pdf.cell(200, 10, txt=f"Invoice No.: {i['invoice_no']}", ln=True, align='L')
+            pdf.cell(200, 10, txt=f"Serial No.: {i['serial_number']}, Warranty: {i['warranty']}", ln=True, align='L')
             pdf.cell(200, 10, txt=f"Supplied To: {i['supplied_to']}, Stock Entry: {i['stock_entry']}", ln=True, align='L')
             pdf.cell(200, 10, txt=f"Purchased Date: {i['purchased_date']}, Updated date: {i['updated_date']}", ln=True, align='L')
             pdf.line(10, pdf.get_y(), 200, pdf.get_y())
@@ -1323,7 +1362,7 @@ def home_display():
 
     try:
         # Fetch all purchases for the given user
-        purchases = Purchases.query.filter_by(user_id=user_id).all()
+        purchases = Purchases.query.all()
 
         total_amount = 0
         total_components = 0
@@ -1366,7 +1405,7 @@ def get_component_by_date(sort):
             # Get component IDs matching the component name and user_id
             component_ids = [
                 comp.component_id for comp in 
-                Components.query.filter_by(component_name=component_name, user_id=user_id).all()
+                Components.query.filter_by(component_name=component_name).all()
             ]
             
             if not component_ids:
@@ -1377,7 +1416,6 @@ def get_component_by_date(sort):
                 Purchases.purchased_date >= from_date,
                 Purchases.purchased_date <= to_date,
                 Purchases.component_id.in_(component_ids),
-                Purchases.user_id == user_id
             )
             
             if sort == 'true':
@@ -1413,6 +1451,8 @@ def get_component_by_date(sort):
                     "invoice_no": p.invoice_no,
                     "filename": invoices.get(p.invoice_no, "Unknown Invoice"),
                     "supplied_to": p.supplied_to,
+                    "serial_number": p.serial_number,
+                    "warranty": p.warranty,
                     "stock_entry": p.stock_entry
                 })
             
@@ -1461,7 +1501,7 @@ def get_vendor_by_date(sort):
             to_date = datetime.datetime.strptime(to_date_str, '%Y-%m-%d').date()
             
             # Find vendor ID based on vendor name and user_id
-            vendor = Vendors.query.filter_by(vendor_name=vendor_name, user_id=user_id).first()
+            vendor = Vendors.query.filter_by(vendor_name=vendor_name).first()
             
             if not vendor:
                 return jsonify({"error": "Vendor not found"}), 404
@@ -1471,7 +1511,6 @@ def get_vendor_by_date(sort):
                 Purchases.purchased_date >= from_date,
                 Purchases.purchased_date <= to_date,
                 Purchases.vendor_id == vendor.vendor_id,
-                Purchases.user_id == user_id
             )
             
             if sort == 'true':
@@ -1504,6 +1543,8 @@ def get_vendor_by_date(sort):
                     "invoice_no": p.invoice_no,
                     "filename": invoices.get(p.invoice_no, "Unknown Invoice"),
                     "supplied_to": p.supplied_to,
+                    "serial_number": p.serial_number,
+                    "warranty": p.warranty,
                     "stock_entry": p.stock_entry
                 })
             
@@ -1556,7 +1597,6 @@ def get_suppliedto_by_date(sort):
                 Purchases.purchased_date >= from_date,
                 Purchases.purchased_date <= to_date,
                 Purchases.supplied_to == supplied_to,
-                Purchases.user_id == user_id
             )
             
             if sort == 'true':
@@ -1590,6 +1630,8 @@ def get_suppliedto_by_date(sort):
                     "invoice_no": p.invoice_no,
                     "filename": invoices.get(p.invoice_no, "Unknown Invoice"),
                     "supplied_to": p.supplied_to,
+                    "serial_number": p.serial_number,
+                    "warranty": p.warranty,
                     "stock_entry": p.stock_entry
                 })
             
@@ -1640,7 +1682,7 @@ def generate_pdf_component_date(sort):
             to_date = datetime.datetime.strptime(to_date_str, '%Y-%m-%d').date()
             
             # Fetch component details
-            component = Components.query.filter_by(component_name=Component, user_id=user_id).first()
+            component = Components.query.filter_by(component_name=Component).first()
             if not component:
                 return jsonify({"error": "Component not found"}), 404
             
@@ -1651,7 +1693,6 @@ def generate_pdf_component_date(sort):
                 purchases = Purchases.query.filter(
                     and_(
                         Purchases.component_id == component_id,
-                        Purchases.user_id == user_id,
                         Purchases.purchased_date >= from_date,
                         Purchases.purchased_date <= to_date
                     )
@@ -1659,7 +1700,6 @@ def generate_pdf_component_date(sort):
             else:
                 purchases = Purchases.query.filter(
                     Purchases.component_id == component_id,
-                    Purchases.user_id == user_id,
                     Purchases.purchased_date >= from_date,
                     Purchases.purchased_date <= to_date
                 ).order_by(Purchases.purchased_date).all()
@@ -1688,6 +1728,7 @@ def generate_pdf_component_date(sort):
             pdf.cell(200, 10, txt=f"Vendor Name : {vendor_name}", ln=True, align='L')
             pdf.cell(200, 10, txt=f"Purchased Price : {purchase.purchased_price} rs, Quantity Purchased : {purchase.purchased_quantity}", ln=True, align='L')
             pdf.cell(200, 10, txt=f"Invoice No. : {purchase.invoice_no}", ln=True, align='L')
+            pdf.cell(200, 10, txt=f"Serial No. : {purchase.serial_number}, Warranty : {purchase.warranty}", ln=True, align='L')
             pdf.cell(200, 10, txt=f"Supplied To : {purchase.supplied_to}, Stock Entry : {purchase.stock_entry}", ln=True, align='L')
             pdf.cell(200, 10, txt=f"Purchased Date : {purchase.purchased_date}, Updated Date : {purchase.updated_date.strftime('%Y-%m-%d %H:%M:%S')}", ln=True, align='L')
             pdf.line(10, pdf.get_y(), 200, pdf.get_y())
@@ -1721,7 +1762,7 @@ def generate_pdf_vendor_date(sort):
             to_date = datetime.datetime.strptime(to_date_str, '%Y-%m-%d').date()
 
             # Fetch vendor details
-            vendor = Vendors.query.filter_by(vendor_name=vendor_name, user_id=user_id).first()
+            vendor = Vendors.query.filter_by(vendor_name=vendor_name).first()
             if not vendor:
                 return jsonify({"error": "Vendor not found"}), 404
 
@@ -1732,7 +1773,6 @@ def generate_pdf_vendor_date(sort):
                 purchases = Purchases.query.filter(
                     and_(
                         Purchases.vendor_id == vendor_id,
-                        Purchases.user_id == user_id,
                         Purchases.purchased_date >= from_date,
                         Purchases.purchased_date <= to_date
                     )
@@ -1740,7 +1780,6 @@ def generate_pdf_vendor_date(sort):
             else:
                 purchases = Purchases.query.filter(
                     Purchases.vendor_id == vendor_id,
-                    Purchases.user_id == user_id,
                     Purchases.purchased_date >= from_date,
                     Purchases.purchased_date <= to_date
                 ).order_by(Purchases.purchased_date).all()
@@ -1775,6 +1814,7 @@ def generate_pdf_vendor_date(sort):
             pdf.cell(200, 10, txt=f"Component Purchased : {component_name}", ln=True, align='L')
             pdf.cell(200, 10, txt=f"Purchased Price : {purchase.purchased_price} rs, Quantity Purchased : {purchase.purchased_quantity}", ln=True, align='L')
             pdf.cell(200, 10, txt=f"Invoice No. : {purchase.invoice_no}", ln=True, align='L')
+            pdf.cell(200, 10, txt=f"Serial No. : {purchase.serial_number}, Warranty : {purchase.warranty}", ln=True, align='L')
             pdf.cell(200, 10, txt=f"Supplied To : {purchase.supplied_to}, Stock Entry : {purchase.stock_entry}", ln=True, align='L')
             pdf.cell(200, 10, txt=f"Purchased Date : {purchase.purchased_date}, Updated Date : {purchase.updated_date.strftime('%Y-%m-%d %H:%M:%S')}", ln=True, align='L')
             pdf.line(10, pdf.get_y(), 200, pdf.get_y())
@@ -1811,14 +1851,12 @@ def generate_pdf_suppliedto_date(sort):
             if sort == 'true':
                 purchases = Purchases.query.filter(
                     Purchases.supplied_to == supplied_to,
-                    Purchases.user_id == user_id,
                     Purchases.purchased_date >= from_date,
                     Purchases.purchased_date <= to_date
                 ).order_by(Purchases.purchased_date.desc()).all()
             else:
                 purchases = Purchases.query.filter(
                     Purchases.supplied_to == supplied_to,
-                    Purchases.user_id == user_id,
                     Purchases.purchased_date >= from_date,
                     Purchases.purchased_date <= to_date
                 ).order_by(Purchases.purchased_date).all()
@@ -1860,6 +1898,7 @@ def generate_pdf_suppliedto_date(sort):
             pdf.cell(200, 10, txt=f"Component Purchased : {component_name}", ln=True, align='L')
             pdf.cell(200, 10, txt=f"Purchased Price : {purchase.purchased_price} rs, Quantity Purchased : {purchase.purchased_quantity}", ln=True, align='L')
             pdf.cell(200, 10, txt=f"Invoice No. : {purchase.invoice_no}", ln=True, align='L')
+            pdf.cell(200, 10, txt=f"Serial No. : {purchase.serial_number}, Warranty : {purchase.warranty}", ln=True, align='L')
             pdf.cell(200, 10, txt=f"Stock Entry : {purchase.stock_entry}", ln=True, align='L')
             pdf.cell(200, 10, txt=f"Purchased Date : {purchase.purchased_date}, Updated Date : {purchase.updated_date.strftime('%Y-%m-%d %H:%M:%S')}", ln=True, align='L')
             pdf.set_font("Times", size=12)
@@ -1880,6 +1919,160 @@ def generate_pdf_suppliedto_date(sort):
         print("Error occurred:", e)
         return jsonify({"error": str(e)}), 400
 
+    
+@app.route('/components/generate_pdf/all', methods=['POST'])
+def generate_pdf_all_components():
+    from_date_str = request.json.get('from_date')
+    to_date_str = request.json.get('to_date')
+    user_id = request.json.get('user_id')
+
+    try:
+        with app.app_context():
+            # Convert date strings to date objects
+            from_date = datetime.datetime.strptime(from_date_str, '%Y-%m-%d').date()
+            to_date = datetime.datetime.strptime(to_date_str, '%Y-%m-%d').date()
+
+            # Fetch all purchases within the date range for the user
+            purchases = Purchases.query.filter(
+                and_(
+                    Purchases.purchased_date >= from_date,
+                    Purchases.purchased_date <= to_date
+                )
+            ).order_by(Purchases.purchased_date).all()
+
+            if not purchases:
+                return jsonify({"error": "No purchases found"}), 404  
+
+            # Fetch vendor and component details
+            vendor_ids = {purchase.vendor_id for purchase in purchases}
+            component_ids = {purchase.component_id for purchase in purchases}
+
+            vendors = {vendor.vendor_id: vendor.vendor_name for vendor in Vendors.query.filter(Vendors.vendor_id.in_(vendor_ids)).all()}
+            components = {component.component_id: component.component_name for component in Components.query.filter(Components.component_id.in_(component_ids)).all()}
+
+        # Generate PDF
+        pdf = FPDF()
+        pdf.add_page()
+        pdf.set_font("Times", style='BI', size=15)
+        pdf.cell(200, 15, txt="All Components Report", ln=True, align='L')
+        pdf.set_font("Times", size=12)
+        pdf.line(10, pdf.get_y(), 200, pdf.get_y())
+
+        c = 0
+        for purchase in purchases:
+            if c % 5 == 0 and c != 0:
+                pdf.add_page()
+                pdf.set_font("Times", style='BI', size=15)
+                pdf.cell(200, 15, txt="All Components Report", ln=True, align='L')
+                pdf.line(10, pdf.get_y(), 200, pdf.get_y())
+                pdf.set_font("Times", size=12)
+
+            vendor_name = vendors.get(purchase.vendor_id, "Unknown Vendor")
+            component_name = components.get(purchase.component_id, "Unknown Component")
+
+            pdf.cell(200, 10, txt=f"Component: {component_name}", ln=True, align='L')
+            pdf.cell(200, 10, txt=f"Vendor Name: {vendor_name}", ln=True, align='L')
+            pdf.cell(200, 10, txt=f"Purchased Price: {purchase.purchased_price} rs, Quantity Purchased: {purchase.purchased_quantity}", ln=True, align='L')
+            pdf.cell(200, 10, txt=f"Invoice No.: {purchase.invoice_no}", ln=True, align='L')
+            pdf.cell(200, 10, txt=f"Serial No.: {purchase.serial_number}, Warranty: {purchase.warranty}", ln=True, align='L')
+            pdf.cell(200, 10, txt=f"Supplied To: {purchase.supplied_to}, Stock Entry: {purchase.stock_entry}", ln=True, align='L')
+            pdf.cell(200, 10, txt=f"Purchased Date: {purchase.purchased_date}, Updated Date: {purchase.updated_date.strftime('%Y-%m-%d %H:%M:%S')}", ln=True, align='L')
+            pdf.line(10, pdf.get_y(), 200, pdf.get_y())
+
+            c += 1
+
+        # Send the PDF response
+        buffer = io.BytesIO()
+        buffer.write(pdf.output(dest='S').encode('latin1'))
+        buffer.seek(0)
+
+        filename = f"Components Purchased (from {from_date} to {to_date}).pdf"
+        return send_file(buffer, as_attachment=True, download_name=filename, mimetype='application/pdf')
+
+    except Exception as e:
+        print("Error occurred:", e)
+        return jsonify({"error": str(e)}), 400    
+    
+    
+@app.route('/vendors/generate_pdf/all', methods=['POST'])
+def generate_pdf_all_vendors():
+    from_date_str = request.json.get('from_date')
+    to_date_str = request.json.get('to_date')
+    user_id = request.json.get('user_id')
+
+    try:
+        with app.app_context():
+            # Convert date strings to date objects
+            from_date = datetime.datetime.strptime(from_date_str, '%Y-%m-%d').date()
+            to_date = datetime.datetime.strptime(to_date_str, '%Y-%m-%d').date()
+
+            # Fetch all purchases within the date range for the user
+            purchases = Purchases.query.filter(
+                and_(
+                    Purchases.purchased_date >= from_date,
+                    Purchases.purchased_date <= to_date
+                )
+            ).order_by(Purchases.purchased_date).all()
+
+            if not purchases:
+                return jsonify({"error": "No purchases found"}), 404  
+
+            # Fetch vendor and component details
+            vendor_ids = {purchase.vendor_id for purchase in purchases}
+            component_ids = {purchase.component_id for purchase in purchases}
+            invoice_nos = {purchase.invoice_no for purchase in purchases}
+
+            vendors = {v.vendor_id: v.vendor_name for v in Vendors.query.filter(Vendors.vendor_id.in_(vendor_ids)).all()}
+            components = {c.component_id: c.component_name for c in Components.query.filter(Components.component_id.in_(component_ids)).all()}
+            invoices = {i.invoice_no: i.invoice_pdf_name for i in Invoices.query.filter(Invoices.invoice_no.in_(invoice_nos)).all()}
+
+        # Generate PDF
+        pdf = FPDF()
+        pdf.add_page()
+        pdf.set_font("Times", style='BI', size=15)
+        pdf.cell(200, 15, txt=f"All Vendors Purchase Report", ln=True, align='L')
+        pdf.cell(200, 15, txt=f"(From {from_date} to {to_date})", ln=True, align='L')
+        pdf.set_font("Times", size=12)
+        pdf.line(10, pdf.get_y(), 200, pdf.get_y())
+
+        c = 0
+        for purchase in purchases:
+            if c % 5 == 0 and c != 0:
+                pdf.add_page()
+                pdf.set_font("Times", style='BI', size=15)
+                pdf.cell(200, 15, txt=f"All Vendors Purchase Report", ln=True, align='L')
+                pdf.cell(200, 15, txt=f"(From {from_date} to {to_date})", ln=True, align='L')
+                pdf.line(10, pdf.get_y(), 200, pdf.get_y())
+                pdf.set_font("Times", size=12)
+
+            vendor_name = vendors.get(purchase.vendor_id, "Unknown Vendor")
+            component_name = components.get(purchase.component_id, "Unknown Component")
+            invoice_name = invoices.get(purchase.invoice_no, "No Invoice")
+
+            pdf.cell(200, 10, txt=f"Vendor Name : {vendor_name}", ln=True, align='L')
+            pdf.cell(200, 10, txt=f"Component Purchased : {component_name}", ln=True, align='L')
+            pdf.cell(200, 10, txt=f"Purchased Price : {purchase.purchased_price} rs, Quantity Purchased : {purchase.purchased_quantity}", ln=True, align='L')
+            pdf.cell(200, 10, txt=f"Invoice No. : {purchase.invoice_no}", ln=True, align='L')
+            pdf.cell(200, 10, txt=f"Serial No. : {purchase.serial_number}, Warranty : {purchase.warranty}", ln=True, align='L')
+            pdf.cell(200, 10, txt=f"Supplied To : {purchase.supplied_to}, Stock Entry : {purchase.stock_entry}", ln=True, align='L')
+            pdf.cell(200, 10, txt=f"Purchased Date : {purchase.purchased_date}, Updated Date : {purchase.updated_date.strftime('%Y-%m-%d %H:%M:%S')}", ln=True, align='L')
+            pdf.set_font("Times", size=12)
+            pdf.line(10, pdf.get_y(), 200, pdf.get_y())
+
+            c += 1
+
+        # Send the PDF response
+        buffer = io.BytesIO()
+        pdf.output(dest='S').encode('latin1')
+        buffer.write(pdf.output(dest='S').encode('latin1'))
+        buffer.seek(0)
+
+        filename = f"All Vendors Report (from {from_date} to {to_date}).pdf"
+        return send_file(buffer, as_attachment=True, download_name=filename, mimetype='application/pdf')
+
+    except Exception as e:
+        print("Error occurred:", e)
+        return jsonify({"error": str(e)}), 400
 
     
     
@@ -1898,8 +2091,6 @@ def get_options_component_search():
             Purchases.purchased_date <= ToDate
         )
     
-    if user_id:
-        query = query.filter(Purchases.user_id == user_id)
 
     component_ids = [component[0] for component in query.all()]
 
@@ -1935,9 +2126,6 @@ def get_options_vendor_search():
                 Purchases.purchased_date <= ToDate
             )
 
-        if user_id:  # Apply user_id filter only if provided
-            query = query.filter(Purchases.user_id == user_id)
-
         vendor_ids = [vendor[0] for vendor in query.all()]
 
         # Fetch vendor names using vendor_ids from the Vendors table
@@ -1969,8 +2157,6 @@ def get_options_suppliedto_search():
                 Purchases.purchased_date <= ToDate
             )
 
-        if user_id:  # Apply user_id filter only if provided
-            query = query.filter(Purchases.user_id == user_id)
 
         supplies = query.order_by(Purchases.purchased_date).all()
         supplies_list = [supplie[0] for supplie in supplies]  # Extract `supplied_to`
@@ -1980,6 +2166,7 @@ def get_options_suppliedto_search():
 
 # ------------------- Register User Route -------------------
 
+
 @app.route('/signup', methods=['POST'])
 def register_user():
     try:
@@ -1987,8 +2174,9 @@ def register_user():
         email = data.get('email')
         username = data.get('username')
         password = data.get('password')
+        userType = data.get('userType')
 
-        if not email or not username or not password:
+        if not email or not username or not password or not userType:
             return jsonify({"error": "Email, Username, and Password are required"}), 400
 
         # Validate username (only letters, at least 7 characters)
@@ -2010,7 +2198,7 @@ def register_user():
         hashed_password = generate_password_hash(password)
 
         # Create new user
-        new_user = RegisteredUsers(email=email, username=username, password=hashed_password)
+        new_user = RegisteredUsers(email=email, username=username, password=hashed_password, user_type=userType)
         db.session.add(new_user)
         db.session.commit()
 
